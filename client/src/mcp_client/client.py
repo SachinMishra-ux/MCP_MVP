@@ -11,6 +11,8 @@ from contextlib import AsyncExitStack
 from config_utils import setup_llm_config
 import litellm
 
+litellm.suppress_debug_info = True
+
 class LLMMCPClient:
     def __init__(self, config_path: str):
         self.config_path = config_path
@@ -115,11 +117,20 @@ class LLMMCPClient:
             max_error_retries = 3
             while True:
                 try:
-                    response = await litellm.acompletion(
-                        model=self.model,
-                        messages=messages,
-                        tools=self._get_llm_tools() if self.available_tools else None
-                    )
+                    kwargs = {
+                        "model": self.model,
+                        "messages": messages,
+                        "tools": self._get_llm_tools() if self.available_tools else None
+                    }
+                    if os.environ.get("AZURE_OPENAI_ENDPOINT"):
+                        kwargs["api_base"] = os.environ.get("AZURE_OPENAI_ENDPOINT")
+                    elif os.environ.get("AZURE_API_BASE"):
+                        kwargs["api_base"] = os.environ.get("AZURE_API_BASE")
+                    
+                    if os.environ.get("AZURE_API_VERSION"):
+                        kwargs["api_version"] = os.environ.get("AZURE_API_VERSION")
+
+                    response = await litellm.acompletion(**kwargs)
                     error_retries = 0  # Reset on success
                 except Exception as e:
                     error_str = str(e)
