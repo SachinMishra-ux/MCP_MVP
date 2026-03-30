@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "local-filesystem": {
+      "command": "./mcp_server",
+      "args": []
+    },
+    "web-fetcher": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch", "--ignore-robots-txt"]
+    }
+  }
+}
