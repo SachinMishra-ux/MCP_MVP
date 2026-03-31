@@ -8,17 +8,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
-# Add client source to path for imports
-sys.path.append(os.path.join(os.path.dirname(__file__), "client", "src", "mcp_client"))
-
+# Standard flat imports (fixes PyInstaller NoneType error)
 try:
-    from client import LLMMCPClient
+    from mcp_client_logic import LLMMCPClient
 except ImportError:
-    # If packaged, might be in a different location or already in path
-    try:
-        from mcp_client.client import LLMMCPClient
-    except ImportError:
-        LLMMCPClient = None
+    # Fallback for different package structures
+    LLMMCPClient = None
 
 from mcp.server.fastmcp import FastMCP
 
