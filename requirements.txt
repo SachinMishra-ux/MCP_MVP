@@ -12,6 +12,7 @@ charset-normalizer==3.4.6
 click==8.3.1
 cryptography==46.0.6
 distro==1.9.0
+fastapi==0.135.2
 fastuuid==0.14.0
 filelock==3.25.2
 frozenlist==1.8.0
@@ -21,6 +22,7 @@ hf-xet==1.4.2
 httpcore==1.0.9
 httpx==0.28.1
 httpx-sse==0.4.3
+httpx_auth==0.23.1
 huggingface_hub==1.8.0
 idna==3.11
 importlib_metadata==9.0.0
@@ -33,6 +35,7 @@ macholib==1.16.4
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mcp==1.26.0
+mcp-proxy==0.11.0
 mdurl==0.1.2
 multidict==6.7.1
 openai==2.30.0
