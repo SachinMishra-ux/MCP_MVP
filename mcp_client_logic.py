@@ -3,7 +3,8 @@ import json
 import sys
 import os
 import traceback
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Annotated, Sequence
+from typing_extensions import TypedDict
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -13,7 +14,19 @@ from contextlib import AsyncExitStack
 from config_utils import setup_llm_config
 import litellm
 
+# LangGraph & LangChain imports
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.tools import tool
+from langgraph.graph import StateGraph, START, END
+from langgraph.graph.message import add_messages
+from langgraph.prebuilt import ToolNode
+from langgraph.checkpoint.memory import MemorySaver
+
 litellm.suppress_debug_info = True
+
+class State(TypedDict):
+    messages: Annotated[Sequence[BaseMessage], add_messages]
 
 class LLMMCPClient:
     def __init__(self, config_path: str):
@@ -27,6 +40,11 @@ class LLMMCPClient:
         env_path = os.environ.get("ENV_PATH", ".env")
         setup_llm_config(env_path)
         self.model = os.environ.get("LLM_MODEL")
+        
+        # Initialize LangGraph components
+        self.checkpointer = MemorySaver()
+        self.app = None
+        self.tools = []
 
     def _load_config(self) -> Dict[str, Any]:
         if not os.path.exists(self.config_path):
@@ -76,158 +94,116 @@ class LLMMCPClient:
                 # We do NOT let one bad server crash the whole client
                 continue
             
-        await self._cache_tools()
+        await self._setup_graph()
 
-    async def _cache_tools(self):
+    async def _setup_graph(self):
+        """Initializes the LangGraph with MCP tools."""
+        # 1. Fetch tools from all servers
         self.available_tools = []
+        langchain_tools = []
+        
         for server_name, session in self.sessions.items():
             try:
                 response = await session.list_tools()
-                for tool in response.tools:
-                    self.available_tools.append({
-                        "server": server_name,
-                        "mcp_tool": tool
-                    })
+                for t in response.tools:
+                    self.available_tools.append({"server": server_name, "mcp_tool": t})
+                    
+                    # Create a closure-safe tool for LangChain
+                    def create_tool(s_name, m_tool):
+                        async def mcp_tool_func(**kwargs):
+                            session = self.sessions[s_name]
+                            result = await session.call_tool(m_tool.name, arguments=kwargs)
+                            return "\n".join(item.text for item in result.content if item.type == "text")
+                        
+                        # Set metadata to match LangChain requirements
+                        mcp_tool_func.__name__ = m_tool.name
+                        mcp_tool_func.__doc__ = m_tool.description or ""
+                        return tool(mcp_tool_func)
+
+                    langchain_tools.append(create_tool(server_name, t))
             except Exception as e:
                 print(f"Warning: Could not list tools for {server_name}: {e}")
 
-    def _get_llm_tools(self) -> List[Dict[str, Any]]:
-        llm_tools = []
-        for t in self.available_tools:
-            mcp_tool = t["mcp_tool"]
-            llm_tools.append({
-                "type": "function",
-                "function": {
-                    "name": mcp_tool.name,
-                    "description": mcp_tool.description or "",
-                    "parameters": mcp_tool.inputSchema
-                }
-            })
-        return llm_tools
+        # 2. Setup LLM (Using ChatOpenAI with Azure/LiteLLM compatibility)
+        api_key = os.environ.get("OPENAI_API_KEY")
+        base_url = os.environ.get("AZURE_OPENAI_ENDPOINT") or os.environ.get("AZURE_API_BASE")
+        
+        # If it's an Azure model, we configure ChatOpenAI accordingly
+        if "azure/" in self.model.lower() or os.environ.get("AZURE_API_KEY"):
+            llm = ChatOpenAI(
+                model=self.model.replace("azure/", ""),
+                api_key=os.environ.get("AZURE_API_KEY") or api_key,
+                base_url=base_url,
+                default_headers={"api-key": os.environ.get("AZURE_API_KEY") or api_key} if base_url else None
+            )
+        else:
+            llm = ChatOpenAI(model=self.model, api_key=api_key)
 
-    def _sanitize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Ensures all messages have a string 'content' field (fixes Azure/OpenAI errors)."""
-        sanitized = []
-        for msg in messages:
-            new_msg = msg.copy()
-            if new_msg.get("content") is None:
-                new_msg["content"] = ""
-            sanitized.append(new_msg)
-        return sanitized
+        # 3. Create the Graph
+        model_with_tools = llm.bind_tools(langchain_tools)
 
-    async def chat(self, user_msg: str, history: List[Dict[str, Any]] = None) -> str:
+        def call_model(state: State):
+            messages = state['messages']
+            response = model_with_tools.invoke(messages)
+            return {"messages": [response]}
+
+        # Define the nodes and edges
+        workflow = StateGraph(State)
+        workflow.add_node("agent", call_model)
+        workflow.add_node("tools", ToolNode(langchain_tools))
+
+        workflow.add_edge(START, "agent")
+        
+        def should_continue(state: State):
+            messages = state['messages']
+            last_message = messages[-1]
+            if last_message.tool_calls:
+                return "tools"
+            return END
+
+        workflow.add_conditional_edges("agent", should_continue)
+        workflow.add_edge("tools", "agent")
+
+        self.app = workflow.compile(checkpointer=self.checkpointer)
+        print(f"LangGraph initialized with {len(langchain_tools)} tools.")
+
+    async def chat(self, user_msg: str, history: List[Dict[str, Any]] = None, thread_id: str = "default") -> str:
         """
-        Unified chat method that handles tools and LLM logic.
-        Can be called by FastAPI or CLI.
+        Unified chat method using LangGraph for persistence.
         """
-        if not self.sessions:
+        if not self.app:
             await self.connect_servers()
 
-        server_names = ", ".join(self.connected_servers) or "No servers connected"
-        system_prompt = (
-            "You are a sophisticated AI assistant connected to the Model Context Protocol (MCP). "
-            f"You have direct access to the following connected MCP servers: {server_names}. "
-            "When the user asks about your capabilities, servers, or resources, explain that you "
-            f"are connected to these MCP servers ({server_names}) and you can use their attached tools to read systems, files, and external APIs. "
-            "Use the provided tools to help the user directly."
-        )
+        config = {"configurable": {"thread_id": thread_id}}
         
-        messages = [{"role": "system", "content": system_prompt}]
-        if history:
-            messages.extend(history)
-        messages.append({"role": "user", "content": user_msg})
+        # Start with system prompt if this is a new thread
+        state = await self.app.aget_state(config)
+        if not state.values:
+            server_names = ", ".join(self.connected_servers) or "No servers connected"
+            system_prompt = (
+                "You are a sophisticated AI assistant connected to the Model Context Protocol (MCP). "
+                f"You have direct access to the following connected MCP servers: {server_names}. "
+                "Use the provided tools to help the user directly."
+            )
+            initial_input = {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_msg)]}
+        else:
+            initial_input = {"messages": [HumanMessage(content=user_msg)]}
+
+        # Run the graph
+        async for event in self.app.astream(initial_input, config=config, stream_mode="values"):
+            final_event = event
         
-        # Agentic tool calling loop
-        error_retries = 0
-        max_error_retries = 3
-        while True:
-            try:
-                # Sanitize to ensure compatibility with strict providers (Azure/OpenAI)
-                sanitized_messages = self._sanitize_messages(messages)
-                
-                kwargs = {
-                    "model": self.model,
-                    "messages": sanitized_messages,
-                    "tools": self._get_llm_tools() if self.available_tools else None
-                }
-                
-                # Extract any custom endpoints from env
-                azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT") or os.environ.get("AZURE_API_BASE")
-                if azure_endpoint:
-                    kwargs["api_base"] = azure_endpoint
-                if os.environ.get("AZURE_API_VERSION"):
-                    kwargs["api_version"] = os.environ.get("AZURE_API_VERSION")
-
-                response = await litellm.acompletion(**kwargs)
-                error_retries = 0
-            except Exception as e:
-                error_str = str(e)
-                print(f"[DEBUG] LiteLLM Error: {error_str}")
-                error_retries += 1
-                if error_retries >= max_error_retries:
-                    return f"Error: Repeated failures while talking to AI ({error_str})"
-                
-                messages.append({
-                    "role": "user", 
-                    "content": f"System Warning: Your previous tool call failed with: {error_str}. Do NOT call any tools. Just respond to the user in natural language explaining what went wrong."
-                })
-                continue
-
-            response_msg = response.choices[0].message
-            # Using model_dump() is standard for litellm messages
-            messages.append(response_msg.model_dump())
-            
-            if response_msg.tool_calls:
-                for tool_call in response_msg.tool_calls:
-                    func_name = tool_call.function.name
-                    try:
-                        func_args = json.loads(tool_call.function.arguments)
-                    except:
-                        func_args = {}
-                        
-                    print(f"[{self.model}] Executing tool '{func_name}'")
-                    
-                    target_server = None
-                    for t in self.available_tools:
-                        if t["mcp_tool"].name == func_name:
-                            target_server = t["server"]
-                            break
-                            
-                    if not target_server:
-                        result_text = f"Tool {func_name} not found across active MCP servers."
-                    else:
-                        try:
-                            session = self.sessions[target_server]
-                            result = await session.call_tool(func_name, arguments=func_args)
-                            result_text = "\n".join(
-                                item.text for item in result.content if item.type == "text"
-                            )
-                        except Exception as e:
-                            result_text = f"Error executing tool: {e}"
-                            
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "name": func_name,
-                        "content": result_text
-                    })
-            else: 
-                return response_msg.content
+        last_message = final_event["messages"][-1]
+        return last_message.content
 
     async def run_chat_loop(self):
-        """Legacy CLI loop for backward compatibility."""
-        try:
-            await self.connect_servers()
-        except Exception as e:
-            print(f"Error connecting to servers: {e}")
-            return
-
+        """Interactive CLI loop."""
+        await self.connect_servers()
         print("\n" + "="*50)
-        print(f"MCP Client Ready! Using Model: {self.model}")
-        print("Type 'exit' or 'quit' to close.")
+        print(f"MCP Client Ready (LangGraph Persistent)! Using Model: {self.model}")
+        print("Type 'exit' to close.")
         print("="*50 + "\n")
         
-        history = []
         while True:
             try:
                 user_msg = input("You: ").strip()
@@ -236,17 +212,13 @@ class LLMMCPClient:
                 if not user_msg:
                     continue
                 
-                response = await self.chat(user_msg, history)
-                history.append({"role": "user", "content": user_msg})
-                history.append({"role": "assistant", "content": response})
+                response = await self.chat(user_msg, thread_id="cli-user")
                 print(f"\nAI: {response}\n")
                 
             except (EOFError, KeyboardInterrupt):
                 break
 
-        print("\nShutting down connections...")
         os._exit(0)
-
 
 def run_llm_client():
     config_path = os.environ.get("MCP_CONFIG_PATH", "config.json")
