@@ -105,6 +105,16 @@ class LLMMCPClient:
             })
         return llm_tools
 
+    def _sanitize_messages(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensures all messages have a string 'content' field (fixes Azure/OpenAI errors)."""
+        sanitized = []
+        for msg in messages:
+            new_msg = msg.copy()
+            if new_msg.get("content") is None:
+                new_msg["content"] = ""
+            sanitized.append(new_msg)
+        return sanitized
+
     async def chat(self, user_msg: str, history: List[Dict[str, Any]] = None) -> str:
         """
         Unified chat method that handles tools and LLM logic.
@@ -132,9 +142,12 @@ class LLMMCPClient:
         max_error_retries = 3
         while True:
             try:
+                # Sanitize to ensure compatibility with strict providers (Azure/OpenAI)
+                sanitized_messages = self._sanitize_messages(messages)
+                
                 kwargs = {
                     "model": self.model,
-                    "messages": messages,
+                    "messages": sanitized_messages,
                     "tools": self._get_llm_tools() if self.available_tools else None
                 }
                 
@@ -161,6 +174,7 @@ class LLMMCPClient:
                 continue
 
             response_msg = response.choices[0].message
+            # Using model_dump() is standard for litellm messages
             messages.append(response_msg.model_dump())
             
             if response_msg.tool_calls:

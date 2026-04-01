@@ -83,8 +83,19 @@ async def chat_endpoint(request: ChatRequest):
     if not mcp_client:
         raise HTTPException(status_code=500, detail="MCP Client not initialized")
     
+    # Filter and clean history to ensure it strictly follows AI message format
+    clean_history = []
+    if request.history:
+        for msg in request.history:
+            if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                # We only keep the core fields to prevent junk metadata from causing API errors
+                clean_history.append({
+                    "role": msg["role"],
+                    "content": msg.get("content") or ""
+                })
+    
     try:
-        response_text = await mcp_client.chat(request.message, request.history)
+        response_text = await mcp_client.chat(request.message, clean_history)
         return ChatResponse(response=response_text, model=mcp_client.model)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
