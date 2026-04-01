@@ -15,7 +15,7 @@ from config_utils import setup_llm_config
 import litellm
 
 # LangGraph & LangChain imports
-from langchain_openai import ChatOpenAI
+from langchain_community.chat_models import ChatLiteLLM
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
@@ -124,20 +124,13 @@ class LLMMCPClient:
             except Exception as e:
                 print(f"Warning: Could not list tools for {server_name}: {e}")
 
-        # 2. Setup LLM (Using ChatOpenAI with Azure/LiteLLM compatibility)
-        api_key = os.environ.get("OPENAI_API_KEY")
-        base_url = os.environ.get("AZURE_OPENAI_ENDPOINT") or os.environ.get("AZURE_API_BASE")
-        
-        # If it's an Azure model, we configure ChatOpenAI accordingly
-        if "azure/" in self.model.lower() or os.environ.get("AZURE_API_KEY"):
-            llm = ChatOpenAI(
-                model=self.model.replace("azure/", ""),
-                api_key=os.environ.get("AZURE_API_KEY") or api_key,
-                base_url=base_url,
-                default_headers={"api-key": os.environ.get("AZURE_API_KEY") or api_key} if base_url else None
-            )
-        else:
-            llm = ChatOpenAI(model=self.model, api_key=api_key)
+        # 2. Setup LLM (Using ChatLiteLLM to preserve working litellm connectivity)
+        # This automatically handles azure/, openai/, etc. prefixes using your .env
+        llm = ChatLiteLLM(
+            model=self.model,
+            streaming=True,
+            handle_tool_calling_errors=True
+        )
 
         # 3. Create the Graph
         model_with_tools = llm.bind_tools(langchain_tools)
