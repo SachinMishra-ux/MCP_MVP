@@ -122,7 +122,7 @@ async def run_cli():
     client = LLMMCPClient(config_path)
     await client.run_chat_loop()
 
-async def run_sse_bridge(sse_url: str, api_key: str, base_prefix: str = ""):
+async def run_sse_bridge(sse_url: str, api_key: str, base_prefix: str = "", verify_ssl: bool = True):
     """
     Direct integration of sse_bridge logic for Chromosome/AgentBuilder servers.
     One SSE connection handles receiving the endpoint AND all subsequent responses.
@@ -141,14 +141,21 @@ async def run_sse_bridge(sse_url: str, api_key: str, base_prefix: str = ""):
     post_url_ready = asyncio.Event()
     post_url = None
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    sys.stderr.write(f"[bridge] Initializing bridge for: {sse_url}\n")
+    sys.stderr.write(f"[bridge] SSL Verification: {'Enabled' if verify_ssl else 'Disabled'}\n")
+
+    async with httpx.AsyncClient(timeout=None, verify=verify_ssl) as client:
         async def sse_reader():
             nonlocal post_url
             endpoint_received = False
             try:
+                sys.stderr.write("[bridge] Attempting SSE connection...\n")
                 async with client.stream("GET", sse_url, headers=sse_headers) as sse:
-                    sse.raise_for_status()
-                    sys.stderr.write("[bridge] SSE connected\n")
+                    if sse.status_code != 200:
+                        sys.stderr.write(f"[bridge] SSE Connection Failed: HTTP {sse.status_code}\n")
+                        return
+
+                    sys.stderr.write("[bridge] SSE connected successfully\n")
 
                     async for line in sse.aiter_lines():
                         if not line or line.startswith(":") or line.startswith("event:"):
@@ -165,7 +172,7 @@ async def run_sse_bridge(sse_url: str, api_key: str, base_prefix: str = ""):
 
                                 parsed = urlparse(sse_url)
                                 post_url = f"{parsed.scheme}://{parsed.netloc}{fixed_path}"
-                                sys.stderr.write(f"[bridge] Endpoint discovered: {post_url}\n")
+                                sys.stderr.write(f"[bridge] POST Endpoint discovered: {post_url}\n")
                                 endpoint_received = True
                                 post_url_ready.set()
                             else:
@@ -178,24 +185,31 @@ async def run_sse_bridge(sse_url: str, api_key: str, base_prefix: str = ""):
                                         pass
             except Exception as e:
                 sys.stderr.write(f"[bridge] SSE error: {e}\n")
+                # Ensure we don't hang stdin_reader forever on error
+                post_url_ready.set()
 
         async def stdin_reader():
+            # Wait for either discovery or error
             await post_url_ready.wait()
+            if not post_url:
+                sys.stderr.write("[bridge] Bridge failed to initialize POST endpoint. Exiting.\n")
+                return
+
             sys.stderr.write("[bridge] Bridge ready, listening for stdio...\n")
             
             loop = asyncio.get_event_loop()
             reader = asyncio.StreamReader()
             protocol = asyncio.StreamReaderProtocol(reader)
-            if sys.platform != "win32":
-                await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-            else:
-                # Windows stdin handling for asyncio
-                def win_read():
-                    return sys.stdin.readline()
+            
+            # Windows stdin handling for asyncio
+            def win_read():
+                return sys.stdin.readline()
                 
             while True:
                 if sys.platform != "win32":
-                    line = await reader.readline()
+                    # For non-Windows, we could use connect_read_pipe once at start
+                    # but for simplicity and robustness we use a thread-safe read
+                    line = await loop.run_in_executor(None, win_read)
                 else:
                     line = await loop.run_in_executor(None, win_read)
                 
@@ -219,8 +233,11 @@ def main():
     parser.add_argument("--bridge", action="store_true", help="Run in SSE Bridge mode")
     parser.add_argument("--url", type=str, help="SSE URL for bridge mode")
     parser.add_argument("--key", type=str, help="API Key for bridge mode")
+    parser.add_argument("--prefix", type=str, default="", help="Prefix for discovered POST URL")
+    parser.add_argument("--no-verify", action="store_false", dest="verify", help="Disable SSL verification")
     parser.add_argument("--port", type=int, default=8000, help="Port for FastAPI server")
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host for FastAPI server")
+    parser.set_defaults(verify=True)
     
     args = parser.parse_args()
     
@@ -228,7 +245,7 @@ def main():
         if not args.url or not args.key:
             print("Error: --url and --key are required for bridge mode.")
             sys.exit(1)
-        asyncio.run(run_sse_bridge(args.url, args.key))
+        asyncio.run(run_sse_bridge(args.url, args.key, base_prefix=args.prefix, verify_ssl=args.verify))
     elif args.mcp_server:
         print("Starting Local MCP Server (Filesystem)...")
         mcp.run()

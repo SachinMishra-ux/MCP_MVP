@@ -1,13 +1,9 @@
 {
   "mcpServers": {
-    "lf-my_projects": {
-      "command": "mcp_app",
+    "local-filesystem": {
+      "command": "./mcp_app",
       "args": [
-        "--bridge",
-        "--url",
-        "https://chromosome.tatatechnologies.com/agentbuilder-api/api/v1/mcp/project/e8b22014-fb98-4fbd-aac5-d3ad8a23c7b9/sse",
-        "--key",
-        "sk-MyAAso9CHOO1t0qjbqUd8ohWOToMMmpFsr2NHzPuGfs"
+        "--mcp-server"
       ]
     },
     "web-fetcher": {
