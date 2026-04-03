@@ -7,17 +7,30 @@ import json
 def build_project(entry_file, output_name, dest_dir):
     print(f"Building {output_name}...")
 
-    # ✅ CROSS-PLATFORM FIX
+    # ✅ Cross-platform separator
     separator = ";" if os.name == "nt" else ":"
-    add_data_value = f"mcp_client/sse_bridge.py{separator}."
+
+    # ✅ Correct path based on your structure
+    sse_path = os.path.join("client", "src", "mcp_client", "sse_bridge.py")
+
+    if not os.path.exists(sse_path):
+        raise FileNotFoundError(f"Missing required file: {sse_path}")
+
+    add_data_value = f"{sse_path}{separator}sse_bridge.py"
 
     pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",
 
-        # ✅ IMPORTANT: must use "=" syntax
+        # ✅ Include SSE bridge
         f"--add-data={add_data_value}",
+
+        # ✅ Fix server import path
+        "--paths", "server/src",
+
+        # ✅ Ensure server is bundled
+        "--hidden-import", "mcp_server.server",
 
         "--collect-all", "litellm",
         "--collect-all", "tiktoken",
@@ -47,7 +60,6 @@ def main():
     print("=== Building MCP Gateway ===")
     build_project("main.py", "mcp_app", release_dir)
 
-    # cleanup
     shutil.rmtree("build", ignore_errors=True)
     if os.path.exists("mcp_app.spec"):
         os.remove("mcp_app.spec")

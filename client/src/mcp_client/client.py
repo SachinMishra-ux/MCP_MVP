@@ -33,13 +33,19 @@ class LLMMCPClient:
             return json.load(f)
 
     def _get_sse_bridge_path(self):
-        """Resolve sse_bridge path for dev + exe"""
+        """Resolve sse_bridge path for dev + EXE"""
         if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)
-        else:
-            base_path = os.path.dirname(__file__)
+            # EXE mode
+            return os.path.join(sys._MEIPASS, "sse_bridge.py")
 
-        return os.path.join(base_path, "sse_bridge.py")
+        # DEV mode (your structure)
+        return os.path.join(
+            os.getcwd(),
+            "client",
+            "src",
+            "mcp_client",
+            "sse_bridge.py"
+        )
 
     async def connect_servers(self):
         config = self._load_config()
@@ -52,7 +58,7 @@ class LLMMCPClient:
                 url = server_config.get("url")
 
                 if url:
-                    # 🔥 SSE via bridge
+                    # 🔥 SSE SERVER via bridge
                     api_key = server_config.get("api_key") or os.environ.get("MCP_API_KEY")
 
                     if not api_key:
@@ -65,23 +71,21 @@ class LLMMCPClient:
                         print(f"[!] sse_bridge.py not found at {sse_bridge_path}")
                         continue
 
-                    print(f"[{name}] Using SSE Bridge → {url}")
+                    print(f"[{name}] Using SSE Bridge")
 
                     server_params = StdioServerParameters(
                         command=sys.executable,
                         args=[sse_bridge_path, url, api_key],
                     )
 
-                    transport_ctx = stdio_client(server_params)
-
                 else:
-                    # 🔥 Normal stdio servers
+                    # 🔥 LOCAL STDIO SERVER
                     command = server_config.get("command")
                     args = server_config.get("args", [])
                     env = server_config.get("env", None)
 
                     if not command:
-                        print(f"Error: No command or url for {name}")
+                        print(f"[!] Missing command for {name}")
                         continue
 
                     server_params = StdioServerParameters(
@@ -90,7 +94,7 @@ class LLMMCPClient:
                         env=env
                     )
 
-                    transport_ctx = stdio_client(server_params)
+                transport_ctx = stdio_client(server_params)
 
                 stdio_transport = await self.stack.enter_async_context(transport_ctx)
                 read, write = stdio_transport
@@ -140,16 +144,12 @@ class LLMMCPClient:
         if not self.sessions:
             await self.connect_servers()
 
-        server_names = ", ".join(self.connected_servers) or "No servers connected"
-
-        system_prompt = (
-            "You are an AI connected to MCP servers: "
-            f"{server_names}. Use tools when needed."
-        )
+        system_prompt = f"You are connected to MCP servers: {', '.join(self.connected_servers)}"
 
         messages = [{"role": "system", "content": system_prompt}]
         if history:
             messages.extend(history)
+
         messages.append({"role": "user", "content": user_msg})
 
         while True:
@@ -193,15 +193,3 @@ class LLMMCPClient:
                     })
             else:
                 return msg.content
-
-
-def run_llm_client():
-    config_path = os.environ.get("MCP_CONFIG_PATH", "config.json")
-
-    if getattr(sys, 'frozen', False):
-        base_path = os.path.dirname(sys.executable)
-        config_path = os.path.join(base_path, config_path)
-        os.environ["ENV_PATH"] = os.path.join(base_path, ".env")
-
-    client = LLMMCPClient(config_path)
-    asyncio.run(client.connect_servers())
