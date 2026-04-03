@@ -47,15 +47,34 @@ def load_mcp_config():
 
         if transport == "sse":
             url = settings.get("url")
-            if not url:
-                print(f"⚠️ Skipping SSE server '{server_name}': no URL specified.")
+            api_key = settings.get("api_key") or settings.get("headers", {}).get("x-api-key")
+            prefix = settings.get("prefix", "")
+
+            if not url or not api_key:
+                print(f"⚠️ Skipping SSE server '{server_name}': URL or API key missing.")
                 continue
+
+            # We'll use our own bridge mode by spawning this same application
+            if getattr(sys, 'frozen', False):
+                # Frozen: run the executable itself in bridge mode
+                command = sys.executable
+                args = ["--bridge", "--url", url, "--key", api_key]
+                if prefix:
+                    args += ["--prefix", prefix]
+            else:
+                # Dev: run 'python main.py' in bridge mode
+                command = sys.executable
+                main_script = os.path.join(project_root, "main.py")
+                args = [main_script, "--bridge", "--url", url, "--key", api_key]
+                if prefix:
+                    args += ["--prefix", prefix]
+
             servers[server_name] = {
-                "transport": "sse",
-                "url": url,
-                "headers": settings.get("headers", {}),
+                "transport": "stdio",
+                "command": command,
+                "args": args,
             }
-            print(f"🌐 SSE server registered: {server_name} → {url}")
+            print(f"🌉 SSE bridge registered: {server_name} → {url}")
         elif transport == "stdio":
             custom_command = settings.get("command")
             custom_args = settings.get("args", [])
@@ -71,6 +90,14 @@ def load_mcp_config():
                 if custom_command == "python" or custom_command == "python3":
                     executable = sys.executable
                 
+                # If command is a relative path, resolve it against project_root
+                if not os.path.isabs(executable) and not executable.startswith(("uvx", "npx")):
+                    candidate_path = os.path.abspath(os.path.join(project_root, executable))
+                    if os.path.exists(candidate_path):
+                        executable = candidate_path
+                    elif os.path.exists(candidate_path + ".exe"): # Windows fallback
+                        executable = candidate_path + ".exe"
+                
                 server_config = {
                     "transport": "stdio",
                     "command": executable,
@@ -80,7 +107,7 @@ def load_mcp_config():
                     server_config["env"] = full_env
 
                 servers[server_name] = server_config
-                print(f"🔧 stdio (custom cmd) registered: {server_name} → {custom_command}")
+                print(f"🔧 stdio (custom cmd) registered: {server_name} → {executable}")
     
             else:
                 script_rel_path = settings.get("script_path")
@@ -105,7 +132,7 @@ async def get_tools_safe(all_servers: dict) -> tuple[list, list]:
         try:
             print(f"🔌 Connecting to '{server_name}'...")
             client = MultiServerMCPClient({server_name: server_config})
-            tools = await asyncio.wait_for(client.get_tools(), timeout=15.0)
+            tools = await asyncio.wait_for(client.get_tools(), timeout=30.0)
             all_tools.extend(tools)
             print(f"✅ Loaded {len(tools)} tools from '{server_name}'")
         except asyncio.TimeoutError:
