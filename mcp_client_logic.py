@@ -127,10 +127,29 @@ class LLMMCPClient:
                     # Create a closure-safe tool for LangChain
                     def create_tool(s_name, m_tool):
                         async def mcp_tool_func(**kwargs):
+                            print(f"[tool] Calling '{m_tool.name}' on '{s_name}' with args: {kwargs}")
                             session = self.sessions[s_name]
                             result = await session.call_tool(m_tool.name, arguments=kwargs)
-                            return "\n".join(item.text for item in result.content if item.type == "text")
-                        
+
+                            # Parse ALL content types — not just text
+                            parts = []
+                            for item in result.content:
+                                if hasattr(item, 'text') and item.text:
+                                    parts.append(item.text)
+                                elif hasattr(item, 'data') and item.data:
+                                    # Embedded resource / base64 data
+                                    parts.append(str(item.data))
+                                elif hasattr(item, 'json') and item.json:
+                                    import json as _json
+                                    parts.append(_json.dumps(item.json, indent=2))
+                                else:
+                                    # Fallback: stringify whatever came back
+                                    parts.append(str(item))
+
+                            output = "\n".join(parts).strip()
+                            print(f"[tool] '{m_tool.name}' result ({len(output)} chars): {output[:300]}...")
+                            return output if output else "(tool returned no content)"
+
                         # Set metadata to match LangChain requirements
                         mcp_tool_func.__name__ = m_tool.name
                         mcp_tool_func.__doc__ = m_tool.description or ""
@@ -151,9 +170,10 @@ class LLMMCPClient:
         # 3. Create the Graph
         model_with_tools = llm.bind_tools(langchain_tools)
 
-        def call_model(state: State):
+        async def call_model(state: State):
             messages = state['messages']
-            response = model_with_tools.invoke(messages)
+            # Use ainvoke to avoid blocking the async event loop
+            response = await model_with_tools.ainvoke(messages)
             return {"messages": [response]}
 
         # Define the nodes and edges
@@ -191,8 +211,13 @@ class LLMMCPClient:
             server_names = ", ".join(self.connected_servers) or "No servers connected"
             system_prompt = (
                 "You are a sophisticated AI assistant connected to the Model Context Protocol (MCP). "
-                f"You have direct access to the following connected MCP servers: {server_names}. "
-                "Use the provided tools to help the user directly."
+                f"You have direct access to tools from the following MCP servers: {server_names}. "
+                "IMPORTANT RULES:\n"
+                "1. Always call the appropriate tool directly when the user asks for something the tool can do.\n"
+                "2. Pass ALL relevant context from the user's message as tool arguments.\n"
+                "3. Do NOT ask the user for more information if you can reasonably infer the arguments.\n"
+                "4. Present the tool's response to the user exactly as returned — do not paraphrase or summarize loss of data.\n"
+                "5. If a tool returns an error or asks for more input, relay that exact message to the user."
             )
             initial_input = {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=user_msg)]}
         else:
