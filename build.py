@@ -4,13 +4,14 @@ import os
 import sys
 import json
 
+
 def build_project(entry_file, output_name, dest_dir):
     print(f"Building {output_name}...")
 
     # ✅ Cross-platform separator
     separator = ";" if os.name == "nt" else ":"
 
-    # ✅ Correct path based on your structure
+    # ✅ Correct SSE bridge path (based on your structure)
     sse_path = os.path.join("client", "src", "mcp_client", "sse_bridge.py")
 
     if not os.path.exists(sse_path):
@@ -26,12 +27,16 @@ def build_project(entry_file, output_name, dest_dir):
         # ✅ Include SSE bridge
         f"--add-data={add_data_value}",
 
-        # ✅ Fix server import path
+        # ✅ Fix import path for server/src
         "--paths", "server/src",
 
-        # ✅ Ensure server is bundled
+        # ✅ Ensure server module is included
         "--hidden-import", "mcp_server.server",
 
+        # ✅ Required hidden imports
+        "--hidden-import", "tiktoken_ext.openai_public",
+
+        # ✅ Collect packages
         "--collect-all", "litellm",
         "--collect-all", "tiktoken",
         "--collect-all", "fastapi",
@@ -39,9 +44,6 @@ def build_project(entry_file, output_name, dest_dir):
 
         "--copy-metadata", "tiktoken",
         "--copy-metadata", "litellm",
-
-        "--hidden-import", "tiktoken_ext.openai_public",
-        "--hidden-import", "tiktoken_ext.core_bpe",
 
         "--distpath", dest_dir,
         entry_file
@@ -53,6 +55,7 @@ def build_project(entry_file, output_name, dest_dir):
 def main():
     release_dir = "release"
 
+    # Clean old builds
     if os.path.exists(release_dir):
         shutil.rmtree(release_dir)
     os.makedirs(release_dir)
@@ -60,6 +63,7 @@ def main():
     print("=== Building MCP Gateway ===")
     build_project("main.py", "mcp_app", release_dir)
 
+    # Cleanup PyInstaller artifacts
     shutil.rmtree("build", ignore_errors=True)
     if os.path.exists("mcp_app.spec"):
         os.remove("mcp_app.spec")
@@ -90,9 +94,14 @@ def main():
         json.dump(config, f, indent=2)
 
     with open(os.path.join(release_dir, ".env.example"), "w") as f:
-        f.write("# LLM config here\n")
+        f.write(
+            "# LLM config example\n"
+            "# LLM_MODEL=openai/gpt-4o\n"
+            "# OPENAI_API_KEY=your_key_here\n"
+        )
 
-    print("\n✅ Build complete → release/")
+    # ✅ Windows-safe print (NO emojis)
+    print("\nBuild complete -> release/")
 
 
 if __name__ == "__main__":
