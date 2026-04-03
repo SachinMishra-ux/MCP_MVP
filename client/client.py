@@ -16,10 +16,15 @@ from langchain_core.messages import HumanMessage, ToolMessage
 
 load_dotenv()
 
-# Project root resolution that works when imported or run directly
-current_script_path = os.path.abspath(__file__)
-client_dir = os.path.dirname(current_script_path)
-project_root = os.path.abspath(os.path.join(client_dir, ".."))
+# Project root resolution that works when imported, run directly, or as a PyInstaller bundle
+if getattr(sys, 'frozen', False):
+    # Running as a bundled executable
+    project_root = os.path.dirname(sys.executable)
+else:
+    # Running in a normal Python environment
+    current_script_path = os.path.abspath(__file__)
+    client_dir = os.path.dirname(current_script_path)
+    project_root = os.path.abspath(os.path.join(client_dir, ".."))
 
 
 def load_mcp_config():

@@ -1,0 +1,12 @@
+INFO:     Started server process [31393]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('0.0.0.0', 8010): address already in use
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+🚀 Starting MCP Gateway on 0.0.0.0:8010...
+📂 Reading config from: /Users/sachinmishra/Desktop/MCP_MVP/release/config.json
+🔧 stdio (custom cmd) registered: local-filesystem → ./mcp_app
+🔧 stdio (custom cmd) registered: web-fetcher → uvx
+🔌 Servers configured: ['local-filesystem', 'web-fetcher']
+🔌 Shutting down...
