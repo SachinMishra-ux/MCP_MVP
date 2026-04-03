@@ -10,11 +10,16 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 import uvicorn
 
+import httpx
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.tools import StructuredTool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
+from pydantic import Field, create_model
+from typing import Any
+from urllib.parse import urlparse as _urlparse
 
 load_dotenv()
 
@@ -70,11 +75,12 @@ def load_mcp_config():
                     args += ["--prefix", prefix]
 
             servers[server_name] = {
-                "transport": "stdio",
-                "command": command,
-                "args": args,
+                "_transport": "sse_direct",  # handled in-process; no subprocess needed
+                "url": url,
+                "api_key": api_key,
+                "prefix": prefix,
             }
-            print(f"🌉 SSE bridge registered: {server_name} → {url}")
+            print(f"🌉 SSE direct registered: {server_name} → {url}")
         elif transport == "stdio":
             custom_command = settings.get("command")
             custom_args = settings.get("args", [])
@@ -124,6 +130,131 @@ def load_mcp_config():
     return servers
 
 
+# ---------------------------------------------------------------------------
+# In-process SSE MCP client (avoids subprocess bridge on Windows)
+# ---------------------------------------------------------------------------
+
+async def _sse_rpc(sse_url: str, api_key: str, prefix: str,
+                   method: str, params: dict, timeout: float = 30.0) -> dict:
+    """
+    Open a fresh SSE session, perform the MCP initialize handshake,
+    execute ONE method call, and return the JSON-RPC result dict.
+    No subprocess is spawned — everything runs in the gateway process.
+    """
+    sse_hdrs = {"x-api-key": api_key, "Accept": "text/event-stream", "Cache-Control": "no-store"}
+    post_hdrs = {"x-api-key": api_key, "Content-Type": "application/json"}
+    q: asyncio.Queue = asyncio.Queue()
+    ready = asyncio.Event()
+    purl: list = [None]
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as http:
+
+        async def _sse_reader():
+            async with http.stream("GET", sse_url, headers=sse_hdrs) as resp:
+                resp.raise_for_status()
+                async for ln in resp.aiter_lines():
+                    if not ln or ln.startswith(":") or ln.startswith("event:"): continue
+                    if ln.startswith("data:"):
+                        data = ln[5:].strip()
+                        if purl[0] is None:
+                            path = (prefix + data) if prefix and not data.startswith(prefix) else data
+                            p = _urlparse(sse_url)
+                            purl[0] = f"{p.scheme}://{p.netloc}{path}"
+                            ready.set()
+                        else:
+                            try:
+                                await q.put(json.loads(data))
+                            except Exception:
+                                pass
+
+        sse_task = asyncio.ensure_future(_sse_reader())
+        try:
+            await asyncio.wait_for(ready.wait(), timeout=timeout)
+            url = purl[0]
+
+            # MCP initialize
+            await http.post(url, headers=post_hdrs, json={
+                "jsonrpc": "2.0", "id": 0, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                            "clientInfo": {"name": "mcp-gateway", "version": "1.0"}}
+            })
+            await asyncio.wait_for(q.get(), timeout=timeout)
+
+            # initialized notification (fire-and-forget)
+            await http.post(url, headers=post_hdrs, json={
+                "jsonrpc": "2.0", "method": "notifications/initialized", "params": {}
+            })
+
+            # actual method call
+            await http.post(url, headers=post_hdrs, json={
+                "jsonrpc": "2.0", "id": 1, "method": method, "params": params
+            })
+            result_msg = await asyncio.wait_for(q.get(), timeout=timeout)
+            return result_msg.get("result", {})
+        finally:
+            sse_task.cancel()
+            try:
+                await sse_task
+            except asyncio.CancelledError:
+                pass
+
+
+def _make_tool_input_model(tool_name: str, schema: dict):
+    """Build a Pydantic model from an MCP tool's inputSchema."""
+    properties = schema.get("properties", {})
+    required_fields = schema.get("required", [])
+    fields: dict = {}
+    for pname, pschema in properties.items():
+        ptype_str = pschema.get("type", "string")
+        ptype: Any = str
+        if ptype_str in ("number", "integer"): ptype = float
+        elif ptype_str == "boolean": ptype = bool
+        elif ptype_str == "array": ptype = list
+        elif ptype_str == "object": ptype = dict
+        default = ... if pname in required_fields else None
+        desc = pschema.get("description", pname)
+        fields[pname] = (ptype, Field(default, description=desc))
+    if not fields:
+        return type("EmptyInput", (object,), {"__annotations__": {}})
+    return create_model(f"{tool_name}Input", **fields)
+
+
+async def get_sse_tools_direct(server_name: str, sse_url: str, api_key: str,
+                                prefix: str = "", timeout: float = 30.0) -> list:
+    """
+    Discover AND wrap tools from an SSE MCP server entirely in-process.
+    Returns LangChain StructuredTool objects with async execution support.
+    """
+    raw = await _sse_rpc(sse_url, api_key, prefix, "tools/list", {}, timeout=timeout)
+    tool_defs = raw.get("tools", [])
+    lc_tools = []
+
+    for t in tool_defs:
+        name = t["name"]
+        desc = t.get("description", "")
+        schema = t.get("inputSchema", {})
+        input_model = _make_tool_input_model(name, schema)
+
+        # Capture closure variables explicitly
+        _url, _key, _pfx, _tname = sse_url, api_key, prefix, name
+
+        async def _arun(_n=_tname, _u=_url, _k=_key, _p=_pfx, **kwargs):
+            result = await _sse_rpc(_u, _k, _p, "tools/call",
+                                    {"name": _n, "arguments": kwargs}, timeout=60.0)
+            content = result.get("content", [])
+            parts = [c.get("text", str(c)) for c in content if isinstance(c, dict)]
+            return "\n".join(parts) if parts else str(result)
+
+        lc_tools.append(StructuredTool(
+            name=name,
+            description=desc,
+            args_schema=input_model,
+            coroutine=_arun,
+        ))
+
+    return lc_tools
+
+
 async def get_tools_safe(all_servers: dict) -> tuple[list, list]:
     all_tools = []
     failed_servers = []
@@ -131,9 +262,23 @@ async def get_tools_safe(all_servers: dict) -> tuple[list, list]:
     for server_name, server_config in all_servers.items():
         try:
             print(f"🔌 Connecting to '{server_name}'...")
-            client = MultiServerMCPClient({server_name: server_config})
-            # Use a longer timeout (60s) for tool discovery to account for slow startup (especially on Windows)
-            tools = await asyncio.wait_for(client.get_tools(), timeout=60.0)
+
+            if server_config.get("_transport") == "sse_direct":
+                # In-process SSE client: avoids slow subprocess startup on Windows
+                tools = await asyncio.wait_for(
+                    get_sse_tools_direct(
+                        server_name,
+                        server_config["url"],
+                        server_config["api_key"],
+                        server_config.get("prefix", ""),
+                    ),
+                    timeout=30.0,
+                )
+            else:
+                client = MultiServerMCPClient({server_name: server_config})
+                # Use a longer timeout (60s) for tool discovery to account for slow startup (especially on Windows)
+                tools = await asyncio.wait_for(client.get_tools(), timeout=60.0)
+
             all_tools.extend(tools)
             print(f"✅ Loaded {len(tools)} tools from '{server_name}'")
         except asyncio.TimeoutError:
