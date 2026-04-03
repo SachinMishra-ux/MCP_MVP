@@ -75,20 +75,21 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
             sys.stderr.write("[bridge] stdin_reader ready, listening for input...\n")
 
             loop = asyncio.get_event_loop()
-            reader = asyncio.StreamReader()
-            protocol = asyncio.StreamReaderProtocol(reader)
-            await loop.connect_read_pipe(lambda: protocol, sys.stdin.buffer)
 
             while True:
-                line = await reader.readline()
+                # Portable way to read from stdin in an async loop (works on Windows & Unix)
+                line = await loop.run_in_executor(None, sys.stdin.readline)
+                
                 if not line:
                     sys.stderr.write("[bridge] stdin closed\n")
                     break
-                line = line.strip()
-                if not line:
+                
+                cleaned_line = line.strip()
+                if not cleaned_line:
                     continue
+                
                 try:
-                    payload = json.loads(line.decode())
+                    payload = json.loads(cleaned_line)
                     method = payload.get("method", "?")
                     resp = await client.post(post_url, json=payload, headers=post_headers)
                     sys.stderr.write(f"[bridge] POST {method} → {resp.status_code}\n")
