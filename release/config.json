@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "local-filesystem": {
-      "command": "mcp_app.exe",
+      "command": "./mcp_app",
       "args": [
-        "--mcp-server"
+        "--server"
       ]
     },
     "web-fetcher": {

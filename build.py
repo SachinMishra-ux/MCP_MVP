@@ -16,50 +16,43 @@ def is_package_installed(name: str) -> bool:
 
 
 def build_project(entry_file, output_name, dest_dir):
-    print(f"Building {output_name}...")
+    print(f"Building {output_name} from {entry_file}...")
 
     # Packages that MUST have --collect-all (always present in requirements.txt)
     collect_all_packages = [
         "litellm", "tiktoken", "fastapi", "uvicorn",
         "langchain", "langchain_core", "langchain_community",
-        "langgraph", "mcp",
+        "langgraph", "mcp", "langchain_mcp_adapters", "langchain_openai"
     ]
-
-    # langchain_litellm: collect-all only if installed
-    optional_collect = ["langchain_litellm"]
 
     # Packages for --copy-metadata (only if installed to avoid CI failures)
     copy_metadata_packages = [
         "tiktoken", "litellm", "langchain", "langchain_core", "langgraph",
-        "langchain_litellm",
+        "langchain_mcp_adapters"
     ]
 
     pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",
-        "--paths", "server/src",
+        "--clean",
 
         # Hidden imports
         "--hidden-import", "tiktoken_ext.openai_public",
         "--hidden-import", "tiktoken_ext.core_bpe",
         "--hidden-import", "langchain_core",
         "--hidden-import", "langchain_community",
-        "--hidden-import", "langgraph",
+        "--hidden-import", "langchain_mcp_adapters",
+        "--hidden-import", "langchain_openai",
+        "--hidden-import", "client.client",
+        "--hidden-import", "server.server",
+        "--hidden-import", "server.sse_bridge"
     ]
 
     # Add --collect-all for all required packages
     for pkg in collect_all_packages:
-        pyinstaller_cmd += ["--collect-all", pkg]
-
-    # Add optional packages only if installed
-    for pkg in optional_collect:
         if is_package_installed(pkg):
-            print(f"  [+] Bundling optional: {pkg}")
             pyinstaller_cmd += ["--collect-all", pkg]
-            pyinstaller_cmd += ["--hidden-import", pkg]
-        else:
-            print(f"  [!] Skipping optional (not installed): {pkg}")
 
     # Add --copy-metadata only for packages that have metadata
     for pkg in copy_metadata_packages:
@@ -79,32 +72,28 @@ def main():
         shutil.rmtree(release_dir)
     os.makedirs(release_dir)
 
-    print("=== Building MCP Gateway ===")
+    # Build UNIFIED MCP App
+    print("\n=== Building Unified MCP App (mcp_app) ===")
     build_project("main.py", "mcp_app", release_dir)
 
     # Cleanup PyInstaller artifacts
     shutil.rmtree("build", ignore_errors=True)
     if os.path.exists("mcp_app.spec"):
         os.remove("mcp_app.spec")
-    shutil.rmtree("dist", ignore_errors=True)
 
-    print("\n=== Generating Config ===")
+    print("\n=== Generating Release Config ===")
 
-    binary_name = "mcp_app.exe" if sys.platform == "win32" else "./mcp_app"
+    binary_name = "./mcp_app" if sys.platform != "win32" else "mcp_app.exe"
 
     config = {
         "mcpServers": {
             "local-filesystem": {
                 "command": binary_name,
-                "args": ["--mcp-server"]
+                "args": ["--server"]
             },
             "web-fetcher": {
                 "command": "uvx",
                 "args": ["mcp-server-fetch", "--ignore-robots-txt"]
-            },
-            "lf-customer_demo": {
-                "url": "https://chromosome.tatatechnologies.com/agentbuilder-api/api/v1/mcp/project/e8b22014-fb98-4fbd-aac5-d3ad8a23c7b9/sse",
-                "api_key": "YOUR_API_KEY"
             }
         }
     }
@@ -114,9 +103,11 @@ def main():
 
     with open(os.path.join(release_dir, ".env.example"), "w") as f:
         f.write(
-            "# LLM config example\n"
-            "# LLM_MODEL=openai/gpt-4o\n"
-            "# OPENAI_API_KEY=your_key_here\n"
+            "# Azure OpenAI Credentials\n"
+            "AZURE_OPENAI_API_KEY=your_key_here\n"
+            "AZURE_OPENAI_ENDPOINT=https://your-endpoint.openai.azure.com/\n"
+            "AZURE_OPENAI_API_VERSION=2024-02-01\n"
+            "AZURE_DEPLOYMENT_NAME=gpt-4o\n"
         )
 
     print("\nBuild complete -> release/")
