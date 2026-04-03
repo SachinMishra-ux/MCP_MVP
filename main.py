@@ -41,6 +41,15 @@ def main():
             print("Error: --url and --key are required for bridge mode.")
             sys.exit(1)
         
+        # On Windows, ProactorEventLoop (the default) conflicts with
+        # run_in_executor on subprocess stdin pipes, causing a TaskGroup error.
+        # Force SelectorEventLoop to handle pipe I/O correctly.
+        if sys.platform == "win32":
+            import msvcrt
+            msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        
         try:
             asyncio.run(main_bridge(args.url, args.key, args.prefix))
         except KeyboardInterrupt:
