@@ -13,23 +13,36 @@ def build_project(entry_file, output_name, dest_dir):
         "--name", output_name,
         "--onefile",
 
-        # ✅ Include server path
+        # Paths
         "--paths", "server/src",
 
-        # ✅ Ensure MCP server is bundled
-        "--hidden-import", "mcp_server.server",
-
-        # ✅ Required hidden imports
+        # ✅ Hidden imports
         "--hidden-import", "tiktoken_ext.openai_public",
+        "--hidden-import", "tiktoken_ext.core_bpe",
+        "--hidden-import", "langchain_litellm",
+        "--hidden-import", "langchain_core",
+        "--hidden-import", "langchain_community",
+        "--hidden-import", "langgraph",
 
-        # ✅ Collect dependencies
+        # ✅ Collect ALL data files for these packages
         "--collect-all", "litellm",
         "--collect-all", "tiktoken",
         "--collect-all", "fastapi",
         "--collect-all", "uvicorn",
+        "--collect-all", "langchain_litellm",
+        "--collect-all", "langchain",
+        "--collect-all", "langchain_core",
+        "--collect-all", "langchain_community",
+        "--collect-all", "langgraph",
+        "--collect-all", "mcp",
 
+        # ✅ Copy metadata
         "--copy-metadata", "tiktoken",
         "--copy-metadata", "litellm",
+        "--copy-metadata", "langchain_litellm",
+        "--copy-metadata", "langchain",
+        "--copy-metadata", "langchain_core",
+        "--copy-metadata", "langgraph",
 
         "--distpath", dest_dir,
         entry_file

@@ -62,6 +62,11 @@ mcp_client: Optional[LLMMCPClient] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global mcp_client
+    if LLMMCPClient is None:
+        raise RuntimeError(
+            "FATAL: mcp_client_logic failed to import. "
+            "Ensure langchain_litellm, langgraph and all dependencies are bundled correctly."
+        )
     config_path = os.environ.get("MCP_CONFIG_PATH", "config.json")
     if getattr(sys, 'frozen', False):
         base_path = os.path.dirname(sys.executable)
