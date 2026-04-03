@@ -7,13 +7,17 @@ import json
 def build_project(entry_file, output_name, dest_dir):
     print(f"Building {output_name}...")
 
+    # ✅ CROSS-PLATFORM FIX
+    separator = ";" if os.name == "nt" else ":"
+    add_data_value = f"mcp_client/sse_bridge.py{separator}."
+
     pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",
 
-        # 🔥 include sse bridge
-        "--add-data", "mcp_client/sse_bridge.py;.",
+        # ✅ IMPORTANT: must use "=" syntax
+        f"--add-data={add_data_value}",
 
         "--collect-all", "litellm",
         "--collect-all", "tiktoken",
@@ -77,7 +81,7 @@ def main():
         f.write("# LLM config here\n")
 
     print("\n✅ Build complete → release/")
-    
+
 
 if __name__ == "__main__":
     main()
