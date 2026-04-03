@@ -189,34 +189,30 @@ async def run_sse_bridge(sse_url: str, api_key: str, base_prefix: str = "", veri
                 post_url_ready.set()
 
         async def stdin_reader():
-            # Wait for either discovery or error
-            await post_url_ready.wait()
-            if not post_url:
-                sys.stderr.write("[bridge] Bridge failed to initialize POST endpoint. Exiting.\n")
-                return
-
-            sys.stderr.write("[bridge] Bridge ready, listening for stdio...\n")
+            sys.stderr.write("[bridge] Stdin reader started, listening for stdio...\n")
             
             loop = asyncio.get_event_loop()
-            reader = asyncio.StreamReader()
-            protocol = asyncio.StreamReaderProtocol(reader)
             
             # Windows stdin handling for asyncio
             def win_read():
                 return sys.stdin.readline()
                 
             while True:
-                if sys.platform != "win32":
-                    # For non-Windows, we could use connect_read_pipe once at start
-                    # but for simplicity and robustness we use a thread-safe read
-                    line = await loop.run_in_executor(None, win_read)
-                else:
-                    line = await loop.run_in_executor(None, win_read)
+                # Always read first to avoid blocking the OS pipe
+                line = await loop.run_in_executor(None, win_read)
                 
                 if not line: break
                 
                 line = line.strip()
                 if not line: continue
+                
+                # If we haven't found the endpoint yet, wait now (but only after receiving data)
+                if not post_url:
+                    sys.stderr.write("[bridge] Request received but SSE endpoint not ready. Waiting for discovery...\n")
+                    await post_url_ready.wait()
+                    if not post_url:
+                        sys.stderr.write("[bridge] SSE discovery failed. Request dropped.\n")
+                        continue
                 
                 try:
                     payload = json.loads(line if isinstance(line, str) else line.decode())

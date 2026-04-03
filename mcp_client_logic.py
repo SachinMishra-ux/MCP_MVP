@@ -81,8 +81,11 @@ class LLMMCPClient:
                 # from causing the RuntimeError: Attempted to exit cancel scope
                 # mentioned in documentation when using global stack during failure.
                 stdio_transport = await self.stack.enter_async_context(transport_ctx)
+                print(f"[{name}] Process spawned, creating session...")
                 read, write = stdio_transport
                 session = await self.stack.enter_async_context(ClientSession(read, write))
+                
+                print(f"[{name}] Initializing session (handshake)...")
                 await session.initialize()
                 
                 self.sessions[name] = session
