@@ -132,7 +132,8 @@ async def get_tools_safe(all_servers: dict) -> tuple[list, list]:
         try:
             print(f"🔌 Connecting to '{server_name}'...")
             client = MultiServerMCPClient({server_name: server_config})
-            tools = await asyncio.wait_for(client.get_tools(), timeout=30.0)
+            # Use a longer timeout (60s) for tool discovery to account for slow startup (especially on Windows)
+            tools = await asyncio.wait_for(client.get_tools(), timeout=60.0)
             all_tools.extend(tools)
             print(f"✅ Loaded {len(tools)} tools from '{server_name}'")
         except asyncio.TimeoutError:

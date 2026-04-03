@@ -61,8 +61,9 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
                             if payload:
                                 try:
                                     json.loads(payload)
-                                    sys.stdout.write(payload + "\n")
-                                    sys.stdout.flush()
+                                    # Use binary buffer for reliable stdout on Windows
+                                    sys.stdout.buffer.write((payload + "\n").encode('utf-8'))
+                                    sys.stdout.buffer.flush()
                                     sys.stderr.write(f"[bridge] → stdout: {payload[:80]}...\n")
                                 except json.JSONDecodeError:
                                     sys.stderr.write(f"[bridge] Non-JSON data skipped: {payload[:60]}\n")
@@ -77,14 +78,14 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
             loop = asyncio.get_event_loop()
 
             while True:
-                # Portable way to read from stdin in an async loop (works on Windows & Unix)
-                line = await loop.run_in_executor(None, sys.stdin.readline)
+                # Portable way to read from binary stdin (works on Windows & Unix)
+                line = await loop.run_in_executor(None, sys.stdin.buffer.readline)
                 
                 if not line:
                     sys.stderr.write("[bridge] stdin closed\n")
                     break
                 
-                cleaned_line = line.strip()
+                cleaned_line = line.strip().decode('utf-8')
                 if not cleaned_line:
                     continue
                 
