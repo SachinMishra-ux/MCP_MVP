@@ -3,50 +3,70 @@ import shutil
 import os
 import sys
 import json
+import importlib.metadata
+
+
+def is_package_installed(name: str) -> bool:
+    """Check if a package has metadata (is properly installed)."""
+    try:
+        importlib.metadata.distribution(name)
+        return True
+    except importlib.metadata.PackageNotFoundError:
+        return False
 
 
 def build_project(entry_file, output_name, dest_dir):
     print(f"Building {output_name}...")
 
+    # Packages that MUST have --collect-all (always present in requirements.txt)
+    collect_all_packages = [
+        "litellm", "tiktoken", "fastapi", "uvicorn",
+        "langchain", "langchain_core", "langchain_community",
+        "langgraph", "mcp",
+    ]
+
+    # langchain_litellm: collect-all only if installed
+    optional_collect = ["langchain_litellm"]
+
+    # Packages for --copy-metadata (only if installed to avoid CI failures)
+    copy_metadata_packages = [
+        "tiktoken", "litellm", "langchain", "langchain_core", "langgraph",
+        "langchain_litellm",
+    ]
+
     pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",
-
-        # Paths
         "--paths", "server/src",
 
-        # ✅ Hidden imports
+        # Hidden imports
         "--hidden-import", "tiktoken_ext.openai_public",
         "--hidden-import", "tiktoken_ext.core_bpe",
-        "--hidden-import", "langchain_litellm",
         "--hidden-import", "langchain_core",
         "--hidden-import", "langchain_community",
         "--hidden-import", "langgraph",
-
-        # ✅ Collect ALL data files for these packages
-        "--collect-all", "litellm",
-        "--collect-all", "tiktoken",
-        "--collect-all", "fastapi",
-        "--collect-all", "uvicorn",
-        "--collect-all", "langchain_litellm",
-        "--collect-all", "langchain",
-        "--collect-all", "langchain_core",
-        "--collect-all", "langchain_community",
-        "--collect-all", "langgraph",
-        "--collect-all", "mcp",
-
-        # ✅ Copy metadata
-        "--copy-metadata", "tiktoken",
-        "--copy-metadata", "litellm",
-        "--copy-metadata", "langchain_litellm",
-        "--copy-metadata", "langchain",
-        "--copy-metadata", "langchain_core",
-        "--copy-metadata", "langgraph",
-
-        "--distpath", dest_dir,
-        entry_file
     ]
+
+    # Add --collect-all for all required packages
+    for pkg in collect_all_packages:
+        pyinstaller_cmd += ["--collect-all", pkg]
+
+    # Add optional packages only if installed
+    for pkg in optional_collect:
+        if is_package_installed(pkg):
+            print(f"  [+] Bundling optional: {pkg}")
+            pyinstaller_cmd += ["--collect-all", pkg]
+            pyinstaller_cmd += ["--hidden-import", pkg]
+        else:
+            print(f"  [!] Skipping optional (not installed): {pkg}")
+
+    # Add --copy-metadata only for packages that have metadata
+    for pkg in copy_metadata_packages:
+        if is_package_installed(pkg):
+            pyinstaller_cmd += ["--copy-metadata", pkg]
+
+    pyinstaller_cmd += ["--distpath", dest_dir, entry_file]
 
     subprocess.run(pyinstaller_cmd, check=True)
 
