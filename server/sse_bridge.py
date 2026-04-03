@@ -17,9 +17,12 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
         "Content-Type": "application/json",
     }
 
-    # Shared state between coroutines
+    # Shared state
     post_url_ready = asyncio.Event()
     post_url = None
+
+    # Queue to buffer stdin messages before the SSE endpoint is ready
+    msg_queue: asyncio.Queue = asyncio.Queue()
 
     async with httpx.AsyncClient(timeout=None) as client:
 
@@ -70,27 +73,40 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
 
         async def stdin_reader():
             """
-            Wait for endpoint to be ready, then forward stdin JSON-RPC → POST.
+            Read stdin immediately into a queue — does NOT wait for the SSE endpoint.
+            This prevents the race condition where the MCP parent sends 'initialize'
+            before the SSE endpoint is discovered.
             """
-            await post_url_ready.wait()
-            sys.stderr.write("[bridge] stdin_reader ready, listening for input...\n")
-
             loop = asyncio.get_event_loop()
+            sys.stderr.write("[bridge] stdin_reader started, buffering input...\n")
 
             while True:
-                # Portable way to read from binary stdin (works on Windows & Unix)
+                # Portable binary stdin read (works on Windows & Unix)
                 line = await loop.run_in_executor(None, sys.stdin.buffer.readline)
-                
+
                 if not line:
                     sys.stderr.write("[bridge] stdin closed\n")
+                    await msg_queue.put(None)  # Signal sender to stop
                     break
-                
-                cleaned_line = line.strip().decode('utf-8')
-                if not cleaned_line:
-                    continue
-                
+
+                cleaned = line.strip().decode('utf-8')
+                if cleaned:
+                    await msg_queue.put(cleaned)
+
+        async def message_sender():
+            """
+            Wait for SSE endpoint to be ready, then drain the queue and forward
+            all buffered + future JSON-RPC messages to the SSE POST endpoint.
+            """
+            await post_url_ready.wait()
+            sys.stderr.write("[bridge] message_sender ready, forwarding queued messages...\n")
+
+            while True:
+                msg = await msg_queue.get()
+                if msg is None:
+                    break  # stdin closed
                 try:
-                    payload = json.loads(cleaned_line)
+                    payload = json.loads(msg)
                     method = payload.get("method", "?")
                     resp = await client.post(post_url, json=payload, headers=post_headers)
                     sys.stderr.write(f"[bridge] POST {method} → {resp.status_code}\n")
@@ -99,7 +115,7 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
                 except Exception as e:
                     sys.stderr.write(f"[bridge] POST error: {e}\n")
 
-        await asyncio.gather(sse_reader(), stdin_reader())
+        await asyncio.gather(sse_reader(), stdin_reader(), message_sender())
 
 
 if __name__ == "__main__":
