@@ -147,7 +147,7 @@ async def _sse_rpc(sse_url: str, api_key: str, prefix: str,
     ready = asyncio.Event()
     purl: list = [None]
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as http:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout), verify=False) as http:
 
         async def _sse_reader():
             async with http.stream("GET", sse_url, headers=sse_hdrs) as resp:
@@ -292,14 +292,25 @@ async def get_tools_safe(all_servers: dict) -> tuple[list, list]:
 
 
 mcp_servers = {}
+cached_tools = []
+failed_servers = []
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global mcp_servers
+    global mcp_servers, cached_tools, failed_servers
     try:
         mcp_servers = load_mcp_config()
         print(f"🔌 Servers configured: {list(mcp_servers.keys())}")
+        
+        # Discover and cache tools at startup
+        print("🔍 Initializing MCP tools...")
+        cached_tools, failed_servers = await get_tools_safe(mcp_servers)
+        
+        if failed_servers:
+            print(f"⚠️ Some servers failed to load at startup: {failed_servers}")
+        print(f"✅ Startup complete. {len(cached_tools)} tools cached.")
+        
         yield
     except Exception as e:
         print(f"❌ Error during startup: {e}")
@@ -321,22 +332,28 @@ memory = MemorySaver()
 
 @app.post("/chat")
 async def chat_endpoint(request: QueryRequest):
-    global mcp_servers
+    global mcp_servers, cached_tools, failed_servers
 
     if not mcp_servers:
         raise HTTPException(status_code=500, detail="No MCP servers configured")
 
     try:
-        tools, failed = await get_tools_safe(mcp_servers)
+        # Use cached tools instead of re-discovering them
+        tools = cached_tools
+        failed = failed_servers
 
         if not tools:
-            raise HTTPException(
-                status_code=503,
-                detail=f"No tools available. All servers failed: {failed}"
-            )
+            # OPTIONAL: If no tools were cached at startup, try one more time or fail
+            if not failed:
+                 raise HTTPException(status_code=503, detail="No tools available.")
+            else:
+                 raise HTTPException(
+                    status_code=503,
+                    detail=f"No tools available. All servers failed at startup: {failed}"
+                )
 
         if failed:
-            print(f"⚠️ Proceeding without failed servers: {failed}")
+            print(f"⚠️ Proceeding with cached tools (excluding failed: {failed})")
 
         llm = AzureChatOpenAI(
             api_key=os.getenv("AZURE_OPENAI_API_KEY"),
@@ -373,10 +390,10 @@ async def chat_endpoint(request: QueryRequest):
 
 @app.get("/tools")
 async def list_tools():
-    tools, failed = await get_tools_safe(mcp_servers)
+    # Return cached tools directly
     return {
-        "loaded": [t.name for t in tools],
-        "failed_servers": failed
+        "loaded": [t.name for t in cached_tools],
+        "failed_servers": failed_servers
     }
 
 def start_gateway(host="0.0.0.0", port=8010):

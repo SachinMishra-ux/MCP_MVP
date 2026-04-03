@@ -24,7 +24,7 @@ async def main_bridge(sse_url, api_key, base_prefix=""):
     # Queue to buffer stdin messages before the SSE endpoint is ready
     msg_queue: asyncio.Queue = asyncio.Queue()
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with httpx.AsyncClient(timeout=None, verify=False) as client:
 
         async def sse_reader():
             """
