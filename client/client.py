@@ -13,6 +13,8 @@ import uvicorn
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_openai import AzureChatOpenAI
 from langchain_core.messages import HumanMessage, ToolMessage
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.prebuilt import create_react_agent
 
 load_dotenv()
 
@@ -138,6 +140,10 @@ app = FastAPI(lifespan=lifespan)
 
 class QueryRequest(BaseModel):
     prompt: str
+    thread_id: str = "default_thread"
+
+# Initialize in-memory checkpointer
+memory = MemorySaver()
 
 
 @app.post("/chat")
@@ -159,50 +165,31 @@ async def chat_endpoint(request: QueryRequest):
         if failed:
             print(f"⚠️ Proceeding without failed servers: {failed}")
 
-        tool_map = {tool.name: tool for tool in tools}
-        print(f"🛠️ Available tools: {list(tool_map.keys())}")
-
         llm = AzureChatOpenAI(
             api_key=os.getenv("AZURE_OPENAI_API_KEY"),
             azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT"),
             api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-            azure_deployment=os.getenv("AZURE_DEPLOYMENT_NAME"),
-            temperature=0
+            azure_deployment=os.getenv("AZURE_DEPLOYMENT_NAME")
         )
 
-        llm_with_tools = llm.bind_tools(tools)
-        messages = [HumanMessage(content=request.prompt)]
-        response = await llm_with_tools.ainvoke(messages)
-        messages.append(response)
-
-        if response.tool_calls:
-            print(f"🛠️ LLM requested tools: {[t['name'] for t in response.tool_calls]}")
-            for tc in response.tool_calls:
-                t_name = tc["name"]
-                t_args = tc["args"]
-                t_id = tc["id"]
-
-                if t_name in tool_map:
-                    try:
-                        print(f"  ▶ Running {t_name} with {t_args}...")
-                        result = await tool_map[t_name].ainvoke(t_args)
-                        messages.append(ToolMessage(tool_call_id=t_id, content=str(result)))
-                    except Exception as tool_err:
-                        err_msg = f"Error executing {t_name}: {str(tool_err)}"
-                        print(f"  ❌ {err_msg}")
-                        messages.append(ToolMessage(tool_call_id=t_id, content=err_msg))
-                else:
-                    print(f"  ❌ Tool '{t_name}' not found.")
-                    messages.append(ToolMessage(tool_call_id=t_id, content="Error: Tool not found"))
-
-            final_response = await llm_with_tools.ainvoke(messages)
+        # Create the agent with memory persistence
+        agent = create_react_agent(llm, tools, checkpointer=memory)
+        
+        # Configure the thread ID for history
+        config = {"configurable": {"thread_id": request.thread_id}}
+        
+        # Invoke the agent
+        inputs = {"messages": [HumanMessage(content=request.prompt)]}
+        result = await agent.ainvoke(inputs, config=config)
+        
+        # Get the final response message
+        final_message = result["messages"][-1]
+        result_content = final_message.content
+        
+        if failed:
+            result_content += f"\n\n⚠️ Note: These servers were unavailable: {failed}"
             
-            result_content = final_response.content
-            if failed:
-                result_content += f"\n\n⚠️ Note: These servers were unavailable: {failed}"
-            return {"response": result_content}
-
-        return {"response": response.content}
+        return {"response": result_content}
 
     except HTTPException:
         raise
