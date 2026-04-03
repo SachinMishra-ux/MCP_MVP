@@ -1,92 +1,69 @@
 import asyncio
 import httpx
-import json
 from typing import Tuple
+from urllib.parse import urljoin
 
 
 class SSEAdapter:
     def __init__(self, url: str, headers: dict | None = None):
         self.url = url
         self.headers = headers or {}
-        self.client = httpx.AsyncClient(timeout=None)
 
-    async def _extract_endpoint(self) -> str:
-        """
-        Step 1:
-        Connect to initial SSE endpoint and extract actual MCP endpoint
-        """
-        async with self.client.stream("GET", self.url, headers=self.headers) as response:
-            async for line in response.aiter_lines():
-                if not line:
-                    continue
+    async def _get_endpoint(self) -> str:
+        async with httpx.AsyncClient(timeout=None) as client:
+            async with client.stream("GET", self.url, headers=self.headers) as response:
+                async for line in response.aiter_lines():
+                    if line.startswith("data:"):
+                        endpoint = line.replace("data:", "").strip()
 
-                # DEBUG (you can comment later)
-                # print("[SSE INIT RAW]", line)
+                        if endpoint.startswith("/"):
+                            base = self.url.split("/agentbuilder-api")[0]
+                            endpoint = urljoin(base, endpoint)
 
-                if line.startswith("data:"):
-                    endpoint = line.replace("data:", "").strip()
+                        print(f"[SSE] endpoint received: {endpoint}")
+                        return endpoint
 
-                    if not endpoint:
-                        continue
-
-                    # Convert relative → absolute URL
-                    if endpoint.startswith("/"):
-                        base = self.url.split("/sse")[0]
-                        endpoint = base + endpoint
-
-                    print(f"[SSE] Received endpoint: {endpoint}")
-                    return endpoint
-
-        raise RuntimeError("Failed to get MCP endpoint from SSE")
+        raise RuntimeError("Failed to get endpoint")
 
     async def connect(self) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        """
-        Step 2:
-        Connect to actual MCP SSE stream and convert → stdio-like stream
-        """
-        endpoint = await self._extract_endpoint()
+        endpoint = await self._get_endpoint()
 
-        response = await self.client.stream("GET", endpoint, headers=self.headers)
+        client = httpx.AsyncClient(timeout=None)
 
         reader = asyncio.StreamReader()
 
         async def pump():
             try:
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-
-                    # DEBUG
-                    # print("[SSE STREAM RAW]", line)
-
-                    if line.startswith("data:"):
-                        data = line.replace("data:", "").strip()
-
-                        if not data:
-                            continue
-
-                        try:
-                            # Ensure it's valid JSON (important!)
-                            json.loads(data)
-
-                            # Feed into MCP stream
+                # 🔥 IMPORTANT: Use POST for MCP requests
+                async with client.stream(
+                    "GET", endpoint, headers=self.headers
+                ) as response:
+                    async for line in response.aiter_lines():
+                        if line.startswith("data:"):
+                            data = line.replace("data:", "").strip()
                             reader.feed_data((data + "\n").encode())
 
-                        except Exception:
-                            # Ignore non-JSON (ping, comments, etc.)
-                            continue
-
             except Exception as e:
-                print(f"[SSE ERROR] {e}")
+                print("[SSE ERROR]", e)
             finally:
                 reader.feed_eof()
 
         asyncio.create_task(pump())
 
-        class DummyWriter:
-            def write(self, data):
-                # MCP client may send requests → ignore or extend later
-                pass
+        class Writer:
+            async def write(self, data):
+                try:
+                    # 🔥 Send MCP requests via POST
+                    await client.post(
+                        endpoint,
+                        content=data,
+                        headers={
+                            **self.headers,
+                            "Content-Type": "application/json"
+                        }
+                    )
+                except Exception as e:
+                    print("[POST ERROR]", e)
 
             async def drain(self):
                 pass
@@ -94,4 +71,4 @@ class SSEAdapter:
             def close(self):
                 pass
 
-        return reader, DummyWriter()
+        return reader, Writer()
