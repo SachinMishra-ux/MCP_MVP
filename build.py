@@ -8,35 +8,21 @@ import json
 def build_project(entry_file, output_name, dest_dir):
     print(f"Building {output_name}...")
 
-    # ✅ Cross-platform separator
-    separator = ";" if os.name == "nt" else ":"
-
-    # ✅ Correct SSE bridge path (based on your structure)
-    sse_path = os.path.join("client", "src", "mcp_client", "sse_bridge.py")
-
-    if not os.path.exists(sse_path):
-        raise FileNotFoundError(f"Missing required file: {sse_path}")
-
-    add_data_value = f"{sse_path}{separator}sse_bridge.py"
-
     pyinstaller_cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", output_name,
         "--onefile",
 
-        # ✅ Include SSE bridge
-        f"--add-data={add_data_value}",
-
-        # ✅ Fix import path for server/src
+        # ✅ Include server path
         "--paths", "server/src",
 
-        # ✅ Ensure server module is included
+        # ✅ Ensure MCP server is bundled
         "--hidden-import", "mcp_server.server",
 
         # ✅ Required hidden imports
         "--hidden-import", "tiktoken_ext.openai_public",
 
-        # ✅ Collect packages
+        # ✅ Collect dependencies
         "--collect-all", "litellm",
         "--collect-all", "tiktoken",
         "--collect-all", "fastapi",
@@ -100,7 +86,6 @@ def main():
             "# OPENAI_API_KEY=your_key_here\n"
         )
 
-    # ✅ Windows-safe print (NO emojis)
     print("\nBuild complete -> release/")
 
 
