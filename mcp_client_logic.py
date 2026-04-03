@@ -15,7 +15,7 @@ from config_utils import setup_llm_config
 import litellm
 
 # LangGraph & LangChain imports
-from langchain_community.chat_models import ChatLiteLLM
+from langchain_litellm import ChatLiteLLM
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, START, END
@@ -60,26 +60,40 @@ class LLMMCPClient:
             try:
                 print(f"Connecting to {name}...")
                 
-                # Check for SSE URL vs Stdio command
-                url = server_config.get("url")
+                url     = server_config.get("url")
+                command = server_config.get("command")
+                args    = server_config.get("args", [])
+                env     = server_config.get("env", None)
+
                 if url:
-                    # SSE Transport
-                    transport_ctx = sse_client(url)
-                else:
-                    # Stdio Transport
-                    command = server_config.get("command")
-                    args = server_config.get("args", [])
-                    env = server_config.get("env", None)
-                    if not command:
-                        print(f"Error: No command or url found for server {name}")
-                        continue
+                    # ── SSE server: spawn our built-in bridge as a stdio subprocess ──
+                    api_key = server_config.get("api_key", "")
+                    prefix  = server_config.get("prefix", "")
                     
-                    server_params = StdioServerParameters(command=command, args=args, env=env)
+                    # Build the bridge command using the current executable
+                    bridge_cmd  = sys.executable
+                    bridge_args = ["--bridge", "--no-verify", "--url", url]
+                    if api_key:
+                        bridge_args += ["--key", api_key]
+                    if prefix:
+                        bridge_args += ["--prefix", prefix]
+
+                    print(f"[{name}] Spawning internal SSE bridge...")
+                    server_params = StdioServerParameters(
+                        command=bridge_cmd,
+                        args=bridge_args,
+                        env=env
+                    )
                     transport_ctx = stdio_client(server_params)
 
-                # Each server gets its own sub-exit stack to prevent one crash 
-                # from causing the RuntimeError: Attempted to exit cancel scope
-                # mentioned in documentation when using global stack during failure.
+                elif command:
+                    # ── Stdio server (local tool or external bridge command) ──
+                    server_params = StdioServerParameters(command=command, args=args, env=env)
+                    transport_ctx = stdio_client(server_params)
+                else:
+                    print(f"Error: No 'url' or 'command' found for server '{name}'")
+                    continue
+
                 stdio_transport = await self.stack.enter_async_context(transport_ctx)
                 print(f"[{name}] Process spawned, creating session...")
                 read, write = stdio_transport
@@ -94,7 +108,6 @@ class LLMMCPClient:
                 
             except Exception as e:
                 print(f"\n[!] Failed to connect to MCP server '{name}': {e}")
-                # We do NOT let one bad server crash the whole client
                 continue
             
         await self._setup_graph()
