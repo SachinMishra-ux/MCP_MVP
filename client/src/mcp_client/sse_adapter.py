@@ -1,74 +1,111 @@
 import asyncio
 import httpx
+import json
 from typing import Tuple
-from urllib.parse import urljoin
 
 
 class SSEAdapter:
     def __init__(self, url: str, headers: dict | None = None):
         self.url = url
         self.headers = headers or {}
+        self.client = httpx.AsyncClient(timeout=None)
 
-    async def _get_endpoint(self) -> str:
-        async with httpx.AsyncClient(timeout=None) as client:
-            async with client.stream("GET", self.url, headers=self.headers) as response:
+        self.endpoint = None
+        self.reader = asyncio.StreamReader()
+
+    async def _start_sse_listener(self):
+        print(f"[SSE] Opening SSE connection → {self.url}")
+
+        try:
+            async with self.client.stream("GET", self.url, headers=self.headers) as response:
+                print(f"[SSE] Status: {response.status_code}")
+
                 async for line in response.aiter_lines():
+                    if not line:
+                        continue
+
+                    print(f"[SSE RAW] {line}")
+
+                    # -------------------------
+                    # Handle SSE data
+                    # -------------------------
                     if line.startswith("data:"):
-                        endpoint = line.replace("data:", "").strip()
+                        data = line.replace("data:", "").strip()
 
-                        if endpoint.startswith("/"):
-                            base = self.url.split("/agentbuilder-api")[0]
-                            endpoint = urljoin(base, endpoint)
+                        print(f"[SSE DATA] {data}")
 
-                        print(f"[SSE] endpoint received: {endpoint}")
-                        return endpoint
+                        # First message = endpoint
+                        if not self.endpoint:
+                            self.endpoint = data
+                            print(f"[SSE] ✅ Endpoint received: {self.endpoint}")
+                            continue
 
-        raise RuntimeError("Failed to get endpoint")
+                        # Subsequent messages = JSON-RPC
+                        try:
+                            parsed = json.loads(data)
+                            print(f"[SSE JSON] {parsed}")
+
+                            self.reader.feed_data((data + "\n").encode())
+
+                        except Exception as e:
+                            print(f"[SSE] Ignoring non-JSON message: {e}")
+
+        except Exception as e:
+            print(f"[SSE ERROR] Listener crashed: {e}")
+
+        finally:
+            print("[SSE] Listener ended")
+            self.reader.feed_eof()
 
     async def connect(self) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        endpoint = await self._get_endpoint()
+        print("[SSE] Starting adapter connection...")
 
-        client = httpx.AsyncClient(timeout=None)
+        asyncio.create_task(self._start_sse_listener())
 
-        reader = asyncio.StreamReader()
+        # Wait for endpoint
+        for i in range(50):  # ~5 seconds
+            if self.endpoint:
+                break
+            await asyncio.sleep(0.1)
 
-        async def pump():
-            try:
-                # 🔥 IMPORTANT: Use POST for MCP requests
-                async with client.stream(
-                    "GET", endpoint, headers=self.headers
-                ) as response:
-                    async for line in response.aiter_lines():
-                        if line.startswith("data:"):
-                            data = line.replace("data:", "").strip()
-                            reader.feed_data((data + "\n").encode())
+        if not self.endpoint:
+            raise RuntimeError("[SSE] ❌ Failed to receive endpoint")
 
-            except Exception as e:
-                print("[SSE ERROR]", e)
-            finally:
-                reader.feed_eof()
+        # Fix relative URL
+        if self.endpoint.startswith("/"):
+            base = self.url.split("/agentbuilder-api")[0]
+            self.endpoint = base + self.endpoint
 
-        asyncio.create_task(pump())
+        print(f"[SSE] Final endpoint → {self.endpoint}")
 
+        # -------------------------
+        # Writer (POST channel)
+        # -------------------------
         class Writer:
-            async def write(self, data):
+            async def write(inner_self, data):
                 try:
-                    # 🔥 Send MCP requests via POST
-                    await client.post(
-                        endpoint,
+                    print(f"[POST] Sending request → {data.decode()[:200]}")
+
+                    response = await self.client.post(
+                        self.endpoint,
                         content=data,
                         headers={
                             **self.headers,
                             "Content-Type": "application/json"
                         }
                     )
+
+                    print(f"[POST] Response status: {response.status_code}")
+
                 except Exception as e:
-                    print("[POST ERROR]", e)
+                    print(f"[POST ERROR] {e}")
 
-            async def drain(self):
+            async def drain(inner_self):
                 pass
 
-            def close(self):
-                pass
+            def close(inner_self):
+                print("[POST] Writer closed")
 
-        return reader, Writer()
+        print("[SSE] ✅ Adapter ready")
+
+        return self.reader, Writer()
