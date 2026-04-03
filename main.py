@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 import argparse
 import asyncio
 import json
@@ -54,6 +55,43 @@ def list_directory(path: str) -> list[str]:
         return os.listdir(path)
     except Exception as e:
         return [f"Error listing directory {path}: {e}"]
+
+@mcp.tool()
+async def rfq_analyzer_multiagent_system(query: str = "Please generate a requirement classification report for me") -> str:
+    """Executes the RFQ Analyzer Multi-Agent System to generate classification reports.
+    
+    Args:
+        query: The request or input for the RFQ analyzer.
+    """
+    api_key = "sk-Nsfo1Kt7-of5WMFSlHDtyx28snG2MbfsuSk5n73I1Nk"
+    url = "https://chromosome.tatatechnologies.com/agentbuilder-api/api/v1/run/696c0255-17ef-4442-8b37-01155b5a9ebf"
+    
+    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+    payload = {
+        "output_type": "chat",
+        "input_type": "chat",
+        "input_value": query,
+        "session_id": str(uuid.uuid4())
+    }
+    
+    print(f"[native] Calling RFQ Analyzer for: {query[:50]}...")
+    try:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            response = await client.post(url, json=payload, headers=headers)
+            response.raise_for_status()
+            
+            # Extract plain text or JSON string from response
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    # Try to find a 'message' or 'output' field if it exists
+                    output = data.get("message") or data.get("output") or data.get("text")
+                    if output: return str(output)
+                return json.dumps(data, indent=2)
+            except:
+                return response.text
+    except Exception as e:
+        return f"Error calling RFQ Analyzer REST API: {e}"
 
 
 # FastAPI Application
