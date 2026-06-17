@@ -1,10 +1,38 @@
-# Architecture & Pedagogical Guide: FreeCAD MCP Server
+# FreeCAD MCP Server 🛠️📐
 
-This guide explains how the FreeCAD MCP (Model Context Protocol) Server works. It is designed to help teachers explain the system architecture, thread safety, and execution flow to their students.
+An open-source Model Context Protocol (MCP) server that connects Large Language Models (like Claude) directly to **FreeCAD**. Build, inspect, and verify 3D geometry in real-time using natural language commands.
 
 ---
 
-## 1. System Architecture Flow
+## 🌟 Key Features
+
+* **AI-Driven 3D Modeling:** Translate conversational prompts into complex FreeCAD Python API operations automatically.
+* **Qt-Safe Execution Bridge:** Uses a custom background XML-RPC server and `QTimer` queue polling to run geometry updates safely on FreeCAD's main GUI thread without crashing the application.
+* **Scene Inspector:** Allows Claude to fetch the hierarchy and properties of active document objects to maintain state context.
+* **Viewport Verification:** Supports capturing screenshots of the active 3D view and encoding them in base64, enabling vision-capable AI models to verify modeling progress.
+
+---
+
+## 📂 Project Directory Structure
+
+```text
+MCP_MVP/
+├── freecad_bridge/
+│   └── freecad_server.py    # XML-RPC receiver & scheduler (runs inside FreeCAD)
+├── server/
+│   ├── __init__.py
+│   └── freecad_mcp.py       # Standalone FastMCP server process (runs in terminal)
+├── test_freecad_rpc.py      # Connection validator client
+├── architecture_guide.md    # Detailed execution flow and pedagogical guide
+├── requirements.txt         # Project package dependencies
+└── README.md                # Project documentation
+```
+
+For a detailed explanation of the internal threading model and sequence diagrams, refer to the **[architecture_guide.md](architecture_guide.md)**.
+
+---
+
+## 🗺️ System Architecture Flow
 
 ```mermaid
 %%{init: {
@@ -55,53 +83,105 @@ sequenceDiagram
 
 ---
 
-## 2. The Core Problem: Why do we need a "Bridge"?
+## 🔌 How XML-RPC Communication Works under the Hood
 
-A key concept for students to learn is **GUI Thread Safety**:
-* **The Rule of GUI Frameworks:** FreeCAD's GUI is built using **Qt** (via the `PySide6` or `PySide2` Python modules). In Qt, only the **Main GUI Thread** is allowed to manipulate 3D shapes, access document objects, or update viewport representations.
-* **The Crash Scenario:** If we ran a standard network listener or an MCP server directly inside FreeCAD, incoming network requests would execute on background threads. If a background thread tries to edit FreeCAD shapes, FreeCAD will instantly crash with a segmentation fault.
-* **The Solution:** We run the network receiver (XML-RPC server) in a background thread, but we **never** run the code on that thread. Instead, we place the commands in a thread-safe Queue and schedule them to be executed on the Main Thread via a `QTimer`.
+To keep FreeCAD stable and responsive, this project divides the execution of modeling code using an **XML-RPC Client-Server Bridge**. 
 
----
+### What is XML-RPC?
+* **RPC (Remote Procedure Call):** A programming concept that allows one program to invoke a function running in a completely different process or environment as if it were a local function.
+* **XML-RPC:** A lightweight protocol that encodes function calls and return parameters into **XML** format and transmits them using standard **HTTP POST** requests.
 
-## 3. Script-by-Script Breakdown
+### The Data Flow
 
-### A. The Internal Bridge (`freecad_bridge/freecad_server.py`)
-This script runs inside FreeCAD's console and acts as the **receiver** and **scheduler**.
-
-* **Background XML-RPC Server:** Starts a standard Python `SimpleXMLRPCServer` on local port `9875` running in a daemon background thread (`threading.Thread`). This prevents FreeCAD from freezing while waiting for network commands.
-* **Task Queue (`task_queue`):** A thread-safe queue (`queue.Queue`) that passes commands from the background network thread to the main GUI thread.
-* **Qt Timer (`poll_queue`):** A Qt timer (`QtCore.QTimer`) running on the main GUI thread that polls the queue every 50 milliseconds. When it finds a task, it pops and executes it safely.
-* **Execution Capturing (`safe_execute`):** Redirects standard output and standard error into string buffers, executes the code using `exec()`, and returns any printed output or error messages to the caller.
-* **Thread Synchronization (`threading.Event`):** Blocks the background RPC thread while the main thread executes the code, and unblocks it once the execution completes.
-
-### B. The External MCP Server (`server/freecad_mcp.py`)
-This script runs in the terminal and acts as the **adaptor** that connects Claude to FreeCAD.
-
-* **FastMCP Server:** Integrates with the Model Context Protocol SDK to communicate with Claude using stdin/stdout.
-* **Tools Exposed:**
-  1. `execute_freecad_python(code)`: Sends Python commands generated by the LLM to FreeCAD's XML-RPC server and returns the console log.
-  2. `get_document_objects()`: Queries the active document structure to give the LLM context on what objects are already in the 3D model.
-  3. `capture_viewport_image()`: Triggers a screenshot of the current 3D view in FreeCAD and returns the image encoded in base64.
-
-### C. The Test Client (`test_freecad_rpc.py`)
-A standalone utility script that bypasses Claude and tests the XML-RPC server connection directly. It is used to verify that the bridge is functional before connecting the MCP server.
-
----
-
-## 4. Execution Flow of a Command (e.g. "Draw a Cube")
-
-1. **User input:** The student inputs *"Draw a 10mm cube"* in Claude.
-2. **LLM Translation:** The AI translates the request into python code:
+1. **The Client (Terminal MCP Server):**  
+   When Claude decides to create or modify geometry, the terminal process (`freecad_mcp.py`) utilizes Python's built-in client proxy to make a remote call:
    ```python
-   import Part
-   doc = App.ActiveDocument or App.newDocument("Workspace")
-   box = Part.makeBox(10, 10, 10)
-   Part.show(box)
-   doc.recompute()
+   client = xmlrpc.client.ServerProxy("http://127.0.0.1:9875")
+   result = client.execute("import Part; Part.makeBox(10, 10, 10)")
    ```
-3. **Tool Call:** Claude calls the `execute_freecad_python` tool.
-4. **RPC Bridge:** The MCP server forwards this python code via XML-RPC.
-5. **Safe Scheduling:** The bridge places the code in the queue. The Qt timer picks it up on FreeCAD's main thread and executes it.
-6. **Execution Output:** The shape is rendered in FreeCAD, and any terminal output is returned to Claude.
-7. **Complete:** Claude reads the success response and informs the student that the cube has been created.
+   Behind the scenes, this gets serialized into an XML envelope and sent over HTTP:
+   ```xml
+   <methodCall>
+     <methodName>execute</methodName>
+     <params>
+       <param><value><string>import Part; Part.makeBox(10, 10, 10)</string></value></param>
+     </params>
+   </methodCall>
+   ```
+
+2. **The Server (FreeCAD App Process):**  
+   Inside FreeCAD, a `SimpleXMLRPCServer` runs on a background daemon thread listening on port `9875`. When the HTTP POST arrives, the server parses the XML envelope to extract the function name (`execute`) and the python code string.
+
+3. **Thread-Safe Queueing & Execution:**  
+   Because GUI manipulations must happen on Qt's main thread, the background thread pushes the script into a thread-safe queue and blocks on a `threading.Event`. FreeCAD's main thread GUI loop polls this queue every 50ms using a `QTimer`, executes the code block safely on the main thread, redirects and captures `stdout`/`stderr` logs, and triggers the synchronization event.
+
+4. **Return Path:**  
+   The background XML-RPC server thread unblocks, serializes the output dictionary into an XML response envelope, and returns it as an HTTP response to the MCP server.
+
+---
+
+## 🚀 Quick Start Guide
+
+### Step 1: Install Dependencies
+This project uses the official Model Context Protocol Python SDK. Install the requirements inside your virtual environment using `uv` or `pip`:
+```bash
+uv add mcp
+```
+
+### Step 2: Run the Bridge inside FreeCAD
+1. Start the **FreeCAD** application.
+2. Open the **Python console** panel:
+   * **View** -> **Panels** -> check **Python console**
+3. Load and execute the bridge server by running this command in the console:
+   ```python
+   exec(open("/Users/sachinmishra/Desktop/MCP_MVP/freecad_bridge/freecad_server.py").read())
+   ```
+4. Verify the output displays:  
+   `FreeCAD Remote RPC server successfully started on port 9875`
+
+### Step 3: Test the Bridge Connection
+Run the validator script in your terminal to ensure the external process can communicate with FreeCAD:
+```bash
+python3 test_freecad_rpc.py
+```
+If successful, you will see `🎉 Connection test successful!` and a print confirmation inside FreeCAD.
+
+### Step 4: Configure Claude Desktop
+Add the server config to your `claude_desktop_config.json` (located at `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "freecad": {
+      "command": "python3",
+      "args": [
+        "/Users/sachinmishra/Desktop/MCP_MVP/server/freecad_mcp.py"
+      ]
+    }
+  }
+}
+```
+*Note: Restart Claude Desktop after saving the configuration.*
+
+---
+
+## 🛠️ Testing Interactively (Optional)
+You can run and test the tools inside a web browser using the official MCP Inspector utility:
+```bash
+npx -y @modelcontextprotocol/inspector uv run python3 server/freecad_mcp.py
+```
+Open `http://localhost:5173` to test the tools via a visual dashboard.
+
+---
+
+## 💬 Natural Language Prompts to Try
+
+Connect your LLM and try prompting:
+* *"Create a new document called 'Table' and build a 1200x800mm table top sitting on 4 legs."*
+* *"List the objects currently present in the active scene."*
+* *"Take a screenshot of the 3D viewport so I can see what is built."*
+
+---
+
+## 🔒 Security Notice
+The XML-RPC bridge server is hardcoded to listen exclusively on localhost (`127.0.0.1`) for security. Never expose the XML-RPC server port (`9875`) to public networks, as it allows arbitrary Python code execution on your system.
