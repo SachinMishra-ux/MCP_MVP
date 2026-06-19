@@ -183,5 +183,42 @@ Connect your LLM and try prompting:
 
 ---
 
+## ☁️ Running as a Remote / Cloud-Hosted Server (Horizon)
+
+You can host this MCP server on the cloud using **Horizon (prefect.io)**, allowing you to connect Claude Desktop to your cloud URL while controlling your local FreeCAD application.
+
+### Step 1: Deploy to Horizon
+1. Push your local workspace directory to a **GitHub repository**.
+2. Log into your **Horizon** dashboard, connect the repository, and deploy the service. 
+3. Horizon will automatically detect `pyproject.toml`, install Python dependencies (FastAPI, websockets, mcp), and expose the SSE endpoints on a public URL (e.g. `https://your-mcp-app.horizon.prefect.io`).
+
+### Step 2: Run the Local Agent on your Laptop
+1. Open `freecad_bridge/local_agent.py` and replace `CLOUD_WS_URL` with your public Horizon WebSocket endpoint:
+   ```python
+   CLOUD_WS_URL = "wss://your-mcp-app.horizon.prefect.io/ws/agent"
+   ```
+2. Make sure FreeCAD is running and the internal bridge server is active (from Step 2 of the Quick Start Guide).
+3. Start the agent in your terminal:
+   ```bash
+   uv run python3 freecad_bridge/local_agent.py
+   ```
+   *You will see the output: `🎉 Connected! Waiting for CAD commands from Cloud MCP...`*
+
+### Step 3: Configure Claude Desktop
+Configure your `claude_desktop_config.json` file to communicate with the cloud endpoints using **SSE Transport**:
+```json
+{
+  "mcpServers": {
+    "freecad-remote": {
+      "transport": "sse",
+      "url": "https://your-mcp-app.horizon.prefect.io/mcp/sse"
+    }
+  }
+}
+```
+*Note: Restart Claude Desktop after saving the configuration.*
+
+---
+
 ## 🔒 Security Notice
 The XML-RPC bridge server is hardcoded to listen exclusively on localhost (`127.0.0.1`) for security. Never expose the XML-RPC server port (`9875`) to public networks, as it allows arbitrary Python code execution on your system.
