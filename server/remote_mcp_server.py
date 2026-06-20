@@ -1,27 +1,16 @@
 import os
 import json
 import asyncio
+import uuid
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from mcp.server.fastmcp import FastMCP
-from mcp.server.sse import SseServerTransport
+from fastmcp import FastMCP
 
 # Initialize FastMCP Server
 mcp = FastMCP("Remote FreeCAD Server")
-app = FastAPI()
 
-# Add CORS Middleware to allow CORS requests from the browser-based Inspector
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-mcp_sse = SseServerTransport("/mcp/messages")
-
-import uuid
+# Get the Starlette app from FastMCP configured for SSE transport
+mcp_app = mcp.http_app(transport="sse", path="/sse")
 
 # Global reference to active local agent connection and pending requests map
 active_agent = None
@@ -105,23 +94,20 @@ async def get_document_objects() -> str:
     finally:
         pending_requests.pop(request_id, None)
 
-from fastapi import Request
-from starlette.responses import Response
+# Initialize FastAPI App with FastMCP's lifespan context
+app = FastAPI(lifespan=mcp_app.lifespan)
 
-# Mount MCP SSE Transport Endpoints
-@app.get("/mcp/sse")
-async def mcp_sse_endpoint(request: Request):
-    async with mcp_sse.connect_sse(
-        request.scope, request.receive, request._send
-    ) as (read_stream, write_stream):
-        await mcp._mcp_server.run(
-            read_stream,
-            write_stream,
-            mcp._mcp_server.create_initialization_options()
-        )
-    return Response()
+# Add CORS Middleware to allow CORS requests from the browser-based Inspector
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app.mount("/mcp/messages", mcp_sse.handle_post_message)
+# Mount the FastMCP sub-app under /mcp (which hosts /mcp/sse and /mcp/messages)
+app.mount("/mcp", mcp_app)
 
 # WebSocket Endpoint for Local Agent to Connect
 @app.websocket("/ws/agent")

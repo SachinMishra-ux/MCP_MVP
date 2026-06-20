@@ -1,7 +1,7 @@
 import os
 import xmlrpc.client
 import base64
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 # Initialize FastMCP Server
 mcp = FastMCP("FreeCAD Server")
