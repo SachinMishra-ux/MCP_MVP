@@ -6,7 +6,7 @@ import os
 
 # Change this to your public cloud app URL (e.g. wss://my-mcp.onrender.com/ws/agent)
 # Defaults to localhost for testing the connection locally first
-CLOUD_WS_URL = "wss://FreeCADMCPServer.fastmcp.app/ws/agent"
+CLOUD_WS_URL = "wss://freecadmcpserver.onrender.com/ws/agent"
 LOCAL_RPC_URL = "http://127.0.0.1:9875"
 
 async def run_agent():
