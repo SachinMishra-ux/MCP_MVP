@@ -70,7 +70,7 @@ sequenceDiagram
 Clone this repository to your local machine to access the connection macro script:
 ```bash
 git clone https://github.com/<your-username>/<your-repo-name>.git
-cd MCP_MVP
+cd into_the_repo_root_folder
 ```
 
 ### Step 2: Start the Connection inside FreeCAD
@@ -85,7 +85,14 @@ cd MCP_MVP
    `Connecting to remote Cloud MCP server at: wss://freecadmcpserver.onrender.com/ws/agent...`
    `🎉 Connected! FreeCAD is now linked to Cloud MCP.`
 
-> [!TIP]
+![](./Resources/Python_Console.png)
+
+---
+
+
+![](./Resources/Report_View.png)
+
+> [TIP]
 > **One-Click Macro Setup:** You can add this folder as your macro directory in FreeCAD under **Tools** $\rightarrow$ **Macro** $\rightarrow$ **Macros...** and set the path. The script `freecad_server.py` will appear as a runnable macro!
 
 ### Step 3: Configure Claude Desktop
@@ -120,3 +127,11 @@ Once connected, you can chat with Claude to build 3D parts:
 
 ## 🔒 Security & Privacy Notice
 All communications between your local FreeCAD instance and our cloud server are encrypted over standard secure protocols (`wss://` and `https://`). The remote server only facilitates the message passing to your active local agent, meaning your local environment remains isolated and secure.
+
+---
+
+## ✍️ Authors & Credits
+Created with ❤️ using **Python** and **FastMCP**.
+
+* **Author:** Sachin Mishra
+* **Email:** [sachin19566@gmail.com](mailto:sachin19566@gmail.com)
