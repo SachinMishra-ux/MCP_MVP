@@ -69,8 +69,8 @@ sequenceDiagram
 ### Step 1: Clone this Repository
 Clone this repository to your local machine to access the connection macro script:
 ```bash
-git clone https://github.com/<your-username>/<your-repo-name>.git
-cd into_the_repo_root_folder
+git clone https://github.com/<your-username>/FreeCADMCPServer.git
+cd FreeCADMCPServer
 ```
 
 ### Step 2: Start the Connection inside FreeCAD
