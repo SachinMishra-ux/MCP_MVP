@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="100%" height="100%">
+  <defs>
+    <!-- Background Gradient -->
+    <radialGradient id="bg-grad" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1E293B" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </radialGradient>
+
+    <!-- Card Gradients -->
+    <linearGradient id="claude-card" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#334155" />
+      <stop offset="100%" stop-color="#1E293B" />
+    </linearGradient>
+    <linearGradient id="render-card" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064E3B" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#022C22" stop-opacity="0.9" />
+    </linearGradient>
+    <linearGradient id="freecad-card" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E3A8A" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#172554" stop-opacity="0.9" />
+    </linearGradient>
+
+    <!-- Drop Shadows -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="6" flood-color="#000000" flood-opacity="0.4" />
+    </filter>
+    <filter id="glow-green" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+    <filter id="glow-blue" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <!-- Marker Arrowheads -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#94A3B8" />
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#34D399" />
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#60A5FA" />
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="540" fill="url(#bg-grad)" rx="16" />
+
+  <!-- Grid Pattern overlay for tech aesthetic -->
+  <g opacity="0.05">
+    <path d="M 0,40 L 960,40 M 0,80 L 960,80 M 0,120 L 960,120 M 0,160 L 960,160 M 0,200 L 960,200 M 0,240 L 960,240 M 0,280 L 960,280 M 0,320 L 960,320 M 0,360 L 960,360 M 0,400 L 960,400 M 0,440 L 960,440 M 0,480 L 960,480" stroke="#FFFFFF" stroke-width="1" />
+    <path d="M 80,0 L 80,540 M 160,0 L 160,540 M 240,0 L 240,540 M 320,0 L 320,540 M 400,0 L 400,540 M 480,0 L 480,540 M 560,0 L 560,540 M 640,0 L 640,540 M 720,0 L 720,540 M 800,0 L 800,540 M 880,0 L 880,540" stroke="#FFFFFF" stroke-width="1" />
+  </g>
+
+  <!-- Header -->
+  <g transform="translate(480, 50)">
+    <text text-anchor="middle" fill="#F8FAFC" font-family="system-ui, -apple-system, sans-serif" font-size="24" font-weight="bold" letter-spacing="0.5">FreeCAD Cloud-Hosted MCP Architecture</text>
+    <text text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="14" dy="22">Secure Outbound Tunneling Flow via Render Cloud</text>
+  </g>
+
+  <!-- ==================== COLUMN 1: CLIENT SIDE ==================== -->
+  <g transform="translate(50, 110)" filter="url(#shadow)">
+    <!-- Container -->
+    <rect width="240" height="350" rx="12" fill="url(#claude-card)" stroke="#475569" stroke-width="2" />
+    <rect width="240" height="40" rx="12" fill="#1E293B" opacity="0.8" />
+    <text x="120" y="26" text-anchor="middle" fill="#38BDF8" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="bold">1. CLAUDE DESKTOP (LOCAL)</text>
+
+    <!-- Sub-component: Claude App -->
+    <g transform="translate(15, 60)">
+      <rect width="210" height="70" rx="8" fill="#0F172A" stroke="#38BDF8" stroke-dasharray="3,3" stroke-width="1" />
+      <text x="105" y="30" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">Claude Chat UI</text>
+      <text x="105" y="48" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">User inputs natural language</text>
+    </g>
+
+    <!-- Sub-component: mcp-remote bridge -->
+    <g transform="translate(15, 160)">
+      <rect width="210" height="90" rx="8" fill="#0F172A" stroke="#475569" stroke-width="1.5" />
+      <text x="105" y="28" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">mcp-remote Bridge</text>
+      <text x="105" y="48" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">Node.js npx process proxying</text>
+      <text x="105" y="64" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">local stdio to remote HTTP/SSE</text>
+    </g>
+
+    <!-- Client-side footnote -->
+    <text x="120" y="325" text-anchor="middle" fill="#64748B" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-style="italic">Requires Node.js on User's PC</text>
+  </g>
+
+  <!-- ==================== COLUMN 2: RENDER CLOUD ==================== -->
+  <g transform="translate(360, 110)" filter="url(#shadow)">
+    <!-- Container -->
+    <rect width="240" height="350" rx="12" fill="url(#render-card)" stroke="#059669" stroke-width="2" />
+    <rect width="240" height="40" rx="12" fill="#022C22" opacity="0.8" />
+    <text x="120" y="26" text-anchor="middle" fill="#34D399" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="bold">2. RENDER HOSTED SERVER</text>
+
+    <!-- Sub-component: FastAPI /mcp/sse -->
+    <g transform="translate(15, 60)">
+      <rect width="210" height="70" rx="8" fill="#022C22" stroke="#34D399" stroke-width="1.5" />
+      <text x="105" y="28" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">SSE Endpoint (/mcp/sse)</text>
+      <text x="105" y="48" text-anchor="middle" fill="#A7F3D0" font-family="system-ui, -apple-system, sans-serif" font-size="11">Establishes SSE stream connection</text>
+    </g>
+
+    <!-- Sub-component: FastAPI /mcp/messages -->
+    <g transform="translate(15, 145)">
+      <rect width="210" height="70" rx="8" fill="#022C22" stroke="#34D399" stroke-width="1.5" />
+      <text x="105" y="28" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">Messages (/mcp/messages)</text>
+      <text x="105" y="48" text-anchor="middle" fill="#A7F3D0" font-family="system-ui, -apple-system, sans-serif" font-size="11">Receives JSON-RPC POST requests</text>
+    </g>
+
+    <!-- Sub-component: WebSocket Server /ws/agent -->
+    <g transform="translate(15, 230)">
+      <rect width="210" height="90" rx="8" fill="#022C22" stroke="#34D399" stroke-width="1.5" />
+      <text x="105" y="28" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">WebSocket Hub (/ws/agent)</text>
+      <text x="105" y="48" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">Keeps connection open with agent,</text>
+      <text x="105" y="64" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">relays commands &amp; returns output</text>
+    </g>
+  </g>
+
+  <!-- ==================== COLUMN 3: LOCAL FREE_CAD ==================== -->
+  <g transform="translate(670, 110)" filter="url(#shadow)">
+    <!-- Container -->
+    <rect width="240" height="350" rx="12" fill="url(#freecad-card)" stroke="#2563EB" stroke-width="2" />
+    <rect width="240" height="40" rx="12" fill="#172554" opacity="0.8" />
+    <text x="120" y="26" text-anchor="middle" fill="#60A5FA" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="bold">3. LOCAL FREECAD APP</text>
+
+    <!-- Sub-component: freecad_server.py QWebSocket -->
+    <g transform="translate(15, 60)">
+      <rect width="210" height="100" rx="8" fill="#172554" stroke="#2563EB" stroke-width="1.5" />
+      <text x="105" y="28" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">QtWebSockets Client</text>
+      <text x="105" y="48" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">Runs inside FreeCAD PySide</text>
+      <text x="105" y="64" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">outbound websocket connection</text>
+      <text x="105" y="80" text-anchor="middle" fill="#60A5FA" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="bold">freecad_server.py Macro</text>
+    </g>
+
+    <!-- Sub-component: FreeCAD main GUI thread execution -->
+    <g transform="translate(15, 190)">
+      <rect width="210" height="90" rx="8" fill="#172554" stroke="#60A5FA" stroke-width="1" />
+      <text x="105" y="28" text-anchor="middle" fill="#F1F5F9" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">GUI Main Thread</text>
+      <text x="105" y="48" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">Executes Python code safely,</text>
+      <text x="105" y="64" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">creates 3D viewport objects,</text>
+      <text x="105" y="80" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">recomputes documents</text>
+    </g>
+
+    <!-- Local-side footnote -->
+    <text x="120" y="325" text-anchor="middle" fill="#64748B" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-style="italic">Reconnects automatically if disconnected</text>
+  </g>
+
+  <!-- ==================== FLOW ARROWS & DATA LINES ==================== -->
+
+  <!-- Flow 1: Claude Chat UI to mcp-remote bridge -->
+  <path d="M 170, 200 L 170, 255" stroke="#38BDF8" stroke-width="2" marker-end="url(#arrow)" />
+  
+  <!-- Flow 2: Claude app to Render Server (SSE Connection) -->
+  <path d="M 275, 205 L 325, 205 L 325, 175 L 360, 175" stroke="#94A3B8" stroke-dasharray="4,4" stroke-width="2" marker-end="url(#arrow)" />
+  <text x="325" y="165" text-anchor="middle" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="11">SSE Stream</text>
+
+  <!-- Flow 3: Claude app to Render Server (HTTP POST Messages) -->
+  <path d="M 275, 235 L 325, 235 L 325, 260 L 360, 260" stroke="#34D399" stroke-width="2" marker-end="url(#arrow-green)" />
+  <text x="325" y="285" text-anchor="middle" fill="#34D399" font-family="system-ui, -apple-system, sans-serif" font-size="11">HTTP POST</text>
+
+  <!-- Flow 4: Render Server to WebSocket endpoint -->
+  <path d="M 585, 230 C 585, 280 585, 280 585, 320" stroke="#34D399" stroke-width="1.5" marker-end="url(#arrow-green)" />
+  <text x="592" y="285" fill="#34D399" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="bold">Relay</text>
+
+  <!-- Flow 5: WebSocket connection (Render <-> Local QWebSocket) -->
+  <path d="M 585, 380 L 635, 380 L 635, 220 L 670, 220" stroke="#60A5FA" stroke-width="3" filter="url(#glow-blue)" marker-end="url(#arrow-blue)" />
+  <text x="635" y="300" text-anchor="middle" fill="#60A5FA" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="bold" transform="rotate(-90 635 300)">WSS WebSocket Tunnel</text>
+
+  <!-- Flow 6: Local QWebSocket to GUI Execution -->
+  <path d="M 790, 240 L 790, 285" stroke="#60A5FA" stroke-width="2" marker-end="url(#arrow-blue)" />
+  <text x="798" y="265" fill="#60A5FA" font-family="system-ui, -apple-system, sans-serif" font-size="11">exec()</text>
+
+  <!-- Legend / Flow Steps -->
+  <g transform="translate(50, 485)">
+    <rect width="860" height="40" rx="6" fill="#1E293B" opacity="0.6" stroke="#475569" stroke-width="1" />
+    <text x="20" y="24" fill="#94A3B8" font-family="system-ui, -apple-system, sans-serif" font-size="12">
+      <tspan fill="#38BDF8" font-weight="bold">Step 1:</tspan> Chat prompt is converted to Python code. 
+      <tspan fill="#34D399" font-weight="bold">Step 2:</tspan> Bridged over HTTP POST to Render Server. 
+      <tspan fill="#60A5FA" font-weight="bold">Step 3:</tspan> Relayed down the WSS tunnel to FreeCAD Macro. 
+      <tspan fill="#F1F5F9" font-weight="bold">Step 4:</tspan> Executed on the GUI thread.
+    </text>
+  </g>
+</svg>

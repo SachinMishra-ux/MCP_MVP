@@ -13,9 +13,10 @@ Connect your local **FreeCAD** instance directly to Claude Desktop! Build, inspe
 
 ---
 
-## 🗺️ System Architecture Flow
+## 🗺️ System Architecture Diagrams
 
-Our hosted architecture tunnels commands securely from the cloud to your local desktop:
+### 1. System Architecture Flow
+Below is the sequence diagram illustrating how Python commands execute safely on FreeCAD's GUI main thread via the bridge listener:
 
 ```mermaid
 %%{init: {
@@ -37,27 +38,37 @@ Our hosted architecture tunnels commands securely from the cloud to your local d
 }}%%
 sequenceDiagram
     autonumber
-    actor User as User
-    participant Claude as Claude Desktop
-    box #1e3a8a Cloud Hosted (Render)
-        participant MCP as Remote MCP Server (SSE)
+    actor User as User / Student
+    participant Claude as Claude Desktop (LLM)
+    box #1e3a8a External Terminal Process
+        participant MCP as Python MCP Server (freecad_mcp.py)
     end
-    box #064e3b Local Desktop
-        participant Macro as FreeCAD QWebSocket (freecad_server.py)
-        participant GUI as FreeCAD GUI Main Thread
+    box #064e3b Inside FreeCAD App Process
+        participant RPC as XML-RPC Listener (Background Thread)
+        participant Main as FreeCAD GUI Main Thread (QTimer Poll)
     end
 
     User->>Claude: "Draw a cylinder"
-    Note over Claude: Calls execute_freecad_python() tool
-    Claude->>MCP: Call Tool (via mcp-remote bridge)
-    MCP->>Macro: Send command (via secure WebSocket tunnel)
-    Note over Macro: Receives script. Calls exec() safely.
-    Macro->>GUI: execute (modifies document on main thread)
-    GUI->>GUI: App.ActiveDocument.recompute() (3D viewport updates)
-    Macro->>MCP: Returns output/logs (via WebSocket)
+    Note over Claude: 1. Generates FreeCAD python code<br/>2. Calls execute_freecad_python() tool
+    Claude->>MCP: Call Tool: execute_freecad_python(code)
+    MCP->>RPC: XML-RPC Post Request (e.g. client.execute(code))
+    Note over RPC: Pushes code task to task_queue.<br/>Blocks and waits for execution event.
+    loop Every 50ms (QTimer Tick)
+        Main->>Main: Check if task_queue has items
+    end
+    Note over Main: Pops task from queue.<br/>Executes exec(code) safely on main thread.
+    Main->>Main: App.ActiveDocument.recompute() (GUI updates 3D view)
+    Main->>RPC: Signal "threading.Event" complete & store stdout/stderr
+    Note over RPC: Unblocks background thread
+    RPC->>MCP: Returns XML-RPC response dictionary
     MCP->>Claude: Returns standard output / error logs
     Claude->>User: "I have created the cylinder for you!"
 ```
+
+### 2. Cloud-Hosted Topology
+Below is the network topology showing the remote hosted Render WebSocket tunnel connection:
+
+![System Architecture Diagram](./Resources/remote_mcp_architecture.svg)
 
 ---
 
