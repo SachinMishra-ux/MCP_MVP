@@ -31,14 +31,14 @@ LOCAL_RPC_PORT = 9875
 # 2. Remote Cloud Setup URL (WebSocket)
 # Set this to your deployed Render/Cloud URL to enable cloud-hosted mode.
 # Keep it as empty string "" if you only want to use it locally.
-WS_URL = "wss://freecadmcpserver.onrender.com/ws/agent" 
+WS_URL = "wss://freecadmcpserver.onrender.com/ws/agent"  #not available yet
 
 # =====================================================================
 # CORE IMPLEMENTATION
 # =====================================================================
 
 # Thread-safe queue for main thread execution
-task_queue = queue.Queue()
+task_queue = queue.Queue() # [1,2,3,4]
 
 def safe_execute(code_str):
     """Executes Python code on the main thread and captures outputs."""
@@ -101,7 +101,7 @@ def take_screenshot(filepath):
         return {"success": False, "error": str(e)}
 
 # ---------------------------------------------------------------------
-# MODE A: LOCAL XML-RPC SERVER (For Local Std進 execution)
+# MODE A: LOCAL XML-RPC SERVER (For Local Std execution)
 # ---------------------------------------------------------------------
 
 class FreeCADRPCMethods:
@@ -183,12 +183,6 @@ class FreeCADWebSocketAgent(QtCore.QObject):
     def start(self):
         print(f"Connecting to remote Cloud MCP server at: {self.url}...")
         request = QNetworkRequest(QtCore.QUrl(self.url))
-        
-        # Support authentication tokens for platforms like fastmcp.app
-        token = os.environ.get("FASTMCP_API_KEY")
-        if token:
-            request.setRawHeader(b"Authorization", f"Bearer {token}".encode("utf-8"))
-            print("🔑 Authorization token loaded from FASTMCP_API_KEY env.")
             
         self.client.open(request)
         
